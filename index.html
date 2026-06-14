@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>졸음 방지 도우미</title>
+
+<!--
+  ============================================================
+   졸음 방지 도우미 (Teachable Machine 이미지 모델 사용)
+  ============================================================
+   - 웹캠으로 사용자의 얼굴을 실시간으로 인식합니다.
+   - Teachable Machine 에서 학습시킨 3개 클래스("깨어있음" / "졸음" / "none")를
+     판별하여 화면 배경/문구/음성으로 반응합니다.
+   - 깨어있을 때만 "공부 시간 스톱워치"가 누적됩니다.
+   - 모든 핵심 로직에는 한글 주석을 자세히 달아두었습니다. (학교 보고서용)
+  ============================================================
+-->
+
+<style>
+  /* ===================== 기본/다크모드 테마 ===================== */
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "맑은 고딕", "Malgun Gothic", system-ui, sans-serif;
+    /* 다크모드 대시보드 배경 (어두운 남색 계열 그라데이션) */
+    background: #12121f;
+    color: #e6e6e6;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  /* 상단 제목 영역 */
+  header {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 28px;
+    letter-spacing: 1px;
+  }
+  header p {
+    margin: 6px 0 0;
+    color: #9aa0b4;
+    font-size: 14px;
+  }
+
+  /* ===================== 좌우 2단 레이아웃 (Flexbox) ===================== */
+  .dashboard {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;          /* 화면이 좁으면 아래로 줄바꿈 */
+    justify-content: center;
+    align-items: flex-start;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* 공통 카드(패널) 스타일 */
+  .panel {
+    background: #1c1c2e;
+    border: 1px solid #2c2c44;
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  }
+
+  .left-panel  { flex: 1 1 660px; max-width: 700px; }
+  .right-panel { flex: 1 1 320px; max-width: 420px; }
+
+  /* ===================== 왼쪽: 웹캠 + 인식 결과 ===================== */
+  /* 웹캠 화면 박스 (640x480, 모서리 둥글게) */
+  #webcam-container {
+    width: 640px;
+    max-width: 100%;
+    height: 480px;
+    margin: 0 auto;
+    border-radius: 16px;
+    overflow: hidden;         /* 둥근 모서리 밖으로 캔버스가 삐져나오지 않게 */
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Teachable Machine 이 만들어 넣는 <canvas> 도 둥글게 보이도록 */
+  #webcam-container canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /*
+    실시간 인식 결과를 보여주는 "상태 배너".
+    상태에 따라 배경색/글자색이 부드럽게(transition) 바뀝니다.
+  */
+  #status-banner {
+    margin-top: 16px;
+    border-radius: 14px;
+    padding: 22px 18px;
+    text-align: center;
+    /* ★ 배경색과 글자색이 0.6초에 걸쳐 부드럽게 전환되도록 */
+    transition: background-color 0.6s ease, color 0.6s ease;
+    background: #cfd8dc;      /* 초기값: 회색(대기) */
+    color: #37474f;
+  }
+  #status-message {
+    font-size: 26px;
+    font-weight: 800;
+  }
+
+  /* ===================== 졸음 상태일 때 깜빡이는 애니메이션 ===================== */
+  /* 노란 배경이 부드럽게 밝아졌다 어두워졌다 반복 */
+  @keyframes blink-warning {
+    0%   { background-color: #FFFDE7; }
+    50%  { background-color: #FFF59D; }
+    100% { background-color: #FFFDE7; }
+  }
+  .blink {
+    animation: blink-warning 1s ease-in-out infinite;
+  }
+
+  /* ===================== 오른쪽: 스톱워치 + 로그 ===================== */
+  .section-title {
+    font-size: 14px;
+    color: #9aa0b4;
+    margin: 0 0 8px;
+    letter-spacing: 1px;
+  }
+
+  /* 누적 공부 시간 스톱워치 (시:분:초) */
+  #stopwatch {
+    font-size: 46px;
+    font-weight: 800;
+    text-align: center;
+    font-variant-numeric: tabular-nums;  /* 숫자 폭 고정 → 흔들림 방지 */
+    letter-spacing: 2px;
+    color: #6ee7a8;
+    padding: 14px 0;
+  }
+  #stopwatch-state {
+    text-align: center;
+    font-size: 13px;
+    color: #9aa0b4;
+    margin-bottom: 6px;
+  }
+
+  hr.divider { border: none; border-top: 1px solid #2c2c44; margin: 18px 0; }
+
+  /* 상태 로그 기록창 (스크롤 가능) */
+  #log-box {
+    height: 260px;
+    overflow-y: auto;
+    background: #15152400;
+    border: 1px solid #2c2c44;
+    border-radius: 10px;
+    padding: 8px;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  #log-box .log-line {
+    padding: 3px 6px;
+    border-bottom: 1px dashed #2c2c4488;
+  }
+  #log-box .log-time { color: #7f86a0; margin-right: 8px; }
+
+  /* 로딩/안내 배지 */
+  #loading-badge {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    background: #2c2c44;
+    color: #ffd27d;
+    font-size: 14px;
+  }
+</style>
+</head>
+
+<body>
+  <header>
+    <h1>🛌 졸음 방지 도우미</h1>
+    <p>웹캠으로 졸음을 감지해 알려주고, 깨어있는 동안의 공부 시간을 기록합니다.</p>
+    <!-- 모델을 불러오는 동안 보여줄 안내 배지 -->
+    <div id="loading-badge">⏳ 모델 불러오는 중...</div>
+  </header>
+
+  <div class="dashboard">
+
+    <!-- ===================== 왼쪽 패널 ===================== -->
+    <div class="panel left-panel">
+      <!-- 웹캠 영상이 들어갈 자리 -->
+      <div id="webcam-container"></div>
+
+      <!-- 상태 배너 (상태에 따라 색/문구가 바뀜) -->
+      <div id="status-banner">
+        <div id="status-message">감지 대기 중</div>
+      </div>
+    </div>
+
+    <!-- ===================== 오른쪽 패널 ===================== -->
+    <div class="panel right-panel">
+      <p class="section-title">누적 공부 시간 (깨어있을 때만 증가)</p>
+      <div id="stopwatch">00:00:00</div>
+      <div id="stopwatch-state">⏸ 대기 중</div>
+
+      <hr class="divider" />
+
+      <p class="section-title">졸음 기록 (잠든 / 일어난 시각)</p>
+      <div id="log-box"></div>
+    </div>
+
+  </div>
+
+  <!-- ===================== 외부 라이브러리 (CDN) ===================== -->
+  <!-- TensorFlow.js : 머신러닝 연산 엔진 -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <!-- Teachable Machine 이미지 모델 전용 라이브러리 (window.tmImage 제공) -->
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+  <script>
+  /* =========================================================================
+     ★★★ 내 모델 주소 ★★★
+     Teachable Machine 에서 모델을 Export 하면 받는 URL 을 여기에 넣으세요.
+     (끝에 슬래시 '/' 를 꼭 포함해야 합니다.)
+     ========================================================================= */
+  const MODEL_URL = "https://teachablemachine.withgoogle.com/models/yioItSKiD/";
+
+  /* 클래스 이름 상수 — ★ Teachable Machine 모델이 실제로 내보내는 라벨과 똑같아야 함 ★
+     (이 모델의 실제 라벨은 wake / sleep / none 이라서 그에 맞춤.
+      화면에 보이는 한글 문구는 아래 STATE_CONFIG 의 message 에서 따로 정함) */
+  const CLASS_AWAKE  = "wake";   // 깨어있음
+  const CLASS_DROWSY = "sleep";  // 졸음
+  const CLASS_NONE   = "none";   // 사람 없음/자리비움
+
+  /* 졸음 판정/경고 관련 설정값 (밀리초 단위) */
+  const DROWSY_HOLD_MS = 3000;   // '졸음'이 이 시간 이상 "연속" 유지돼야 진짜 경고
+  const TTS_COOLDOWN_MS = 10000; // 음성 경고를 한 번 한 뒤 다시 울리기까지의 최소 간격
+
+  /* ===================== 전역 변수들 ===================== */
+  let model, webcam, maxPredictions;
+
+  let displayState = CLASS_NONE; // 현재 화면에 "확정되어" 표시 중인 상태
+  let drowsyStartTime = null;    // '졸음'이 처음 감지되기 시작한 시각 (3초 카운트용)
+  let lastWarningTime = -Infinity; // 마지막으로 음성 경고를 울린 시각 (쿨다운용)
+
+  let studySeconds = 0;          // 누적 공부 시간(초)
+  let ttsUnlocked = false;       // 브라우저 음성 출력이 사용자 동작으로 풀렸는지 여부
+
+  /* 상태별 화면 설정값을 한 곳에 모아둠 (배경색/글자색/문구/스톱워치 동작 등) */
+  const STATE_CONFIG = {
+    [CLASS_AWAKE]: {
+      bg: "#E8F5E9",            // 차분한 초록
+      color: "#1b5e20",
+      message: "집중 잘 되고 있어요!",
+      blink: false,
+      runStopwatch: true,        // 깨어있음 → 스톱워치 작동
+    },
+    [CLASS_DROWSY]: {
+      bg: "#FFFDE7",            // 노랑 (CSS 애니메이션으로 깜빡임)
+      color: "#f57f17",
+      message: "졸음 감지! 일어나서 스트레칭하세요",
+      blink: true,
+      runStopwatch: false,       // 졸음 → 스톱워치 일시정지
+    },
+    [CLASS_NONE]: {
+      bg: "#CFD8DC",            // 회색
+      color: "#37474f",
+      message: "감지 대기 중",
+      blink: false,
+      runStopwatch: false,       // 자리비움 → 스톱워치 일시정지
+    },
+  };
+
+  /* DOM 요소 미리 찾아두기 */
+  const bannerEl    = document.getElementById("status-banner");
+  const messageEl   = document.getElementById("status-message");
+  const stopwatchEl = document.getElementById("stopwatch");
+  const swStateEl   = document.getElementById("stopwatch-state");
+  const logBoxEl    = document.getElementById("log-box");
+  const loadingBadge= document.getElementById("loading-badge");
+
+  /* =========================================================================
+     1) 모델 + 웹캠 초기화
+     ========================================================================= */
+  async function init() {
+    try {
+      const modelURL    = MODEL_URL + "model.json";
+      const metadataURL = MODEL_URL + "metadata.json";
+
+      // 모델과 메타데이터(클래스 이름 등)를 불러옴
+      model = await tmImage.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
+
+      // 웹캠 설정 (640x480, flip=true 로 거울처럼 좌우 반전)
+      const flip = true;
+      webcam = new tmImage.Webcam(640, 480, flip);
+      await webcam.setup();   // ★ 여기서 브라우저가 카메라 권한을 요청함
+      await webcam.play();
+
+      // 웹캠 캔버스를 화면에 붙임
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+      // 로딩 배지 숨기기
+      loadingBadge.style.display = "none";
+
+      // 매 프레임마다 예측을 반복 실행
+      window.requestAnimationFrame(loop);
+    } catch (err) {
+      // 카메라 거부, 모델 주소 오류 등 예외 처리
+      loadingBadge.textContent = "⚠ 초기화 실패: " + err.message;
+      loadingBadge.style.color = "#ff8a80";
+      console.error(err);
+    }
+  }
+
+  /* =========================================================================
+     2) 매 프레임 반복: 웹캠 갱신 → 예측 → 화면 반영
+     ========================================================================= */
+  async function loop() {
+    webcam.update();          // 웹캠 화면 한 프레임 갱신
+    await predict();          // 모델 예측 실행
+    window.requestAnimationFrame(loop);
+  }
+
+  async function predict() {
+    // 현재 웹캠 캔버스를 모델에 넣어 각 클래스의 확률을 받음
+    const prediction = await model.predict(webcam.canvas);
+
+    // 가장 확률이 높은 클래스를 찾음 = "원본(raw) 상태"
+    let topClass = prediction[0].className;
+    let topProb  = prediction[0].probability;
+    for (let i = 1; i < prediction.length; i++) {
+      if (prediction[i].probability > topProb) {
+        topProb  = prediction[i].probability;
+        topClass = prediction[i].className;
+      }
+    }
+
+    // ★핵심★ 3초 연속 유지 / 쿨다운 로직으로 "확정 상태(displayState)"를 결정
+    decideState(topClass);
+  }
+
+  /* =========================================================================
+     3) 상태 확정 로직 (오작동 방지의 핵심)
+        - '졸음'은 3초 이상 연속 유지될 때만 진짜 졸음으로 인정
+        - 음성 경고는 10초 쿨다운
+     ========================================================================= */
+  function decideState(rawClass) {
+    const now = performance.now();
+    let newState;
+
+    if (rawClass === CLASS_DROWSY) {
+      // 졸음이 감지되기 시작한 순간의 시각을 기록 (아직 기록 전이라면)
+      if (drowsyStartTime === null) drowsyStartTime = now;
+
+      const heldFor = now - drowsyStartTime; // 졸음이 연속으로 유지된 시간
+
+      if (heldFor >= DROWSY_HOLD_MS) {
+        // 3초 이상 연속 → 진짜 졸음으로 확정
+        newState = CLASS_DROWSY;
+
+        // 음성 경고: 마지막 경고로부터 10초가 지났을 때만 울림
+        if (now - lastWarningTime >= TTS_COOLDOWN_MS) {
+          speakWarning();
+          lastWarningTime = now;
+        }
+      } else {
+        // 아직 3초가 안 됨 → 잠깐 눈 깜빡임일 수 있으니 "무시"하고 이전 상태 유지
+        newState = displayState;
+      }
+    } else {
+      // 졸음이 아니면(깨어있음/none) 졸음 타이머 초기화
+      drowsyStartTime = null;
+      newState = rawClass; // 깨어있음 또는 none 을 그대로 확정
+    }
+
+    // 확정 상태가 바뀌었을 때만 화면/로그를 업데이트
+    if (newState !== displayState) {
+      const oldState = displayState; // 직전 상태 기억
+      displayState = newState;
+      applyState(displayState);
+
+      // 로그는 "졸음에 빠진 시각"과 "졸음에서 다시 깨어난 시각"만 남김
+      if (newState === CLASS_DROWSY) {
+        addLog("😴 잠들었어요");                              // 졸기 시작한 시각
+      } else if (newState === CLASS_AWAKE && oldState === CLASS_DROWSY) {
+        addLog("☀️ 다시 일어났어요");                         // 졸음에서 깨어난 시각
+      }
+    }
+  }
+
+  /* =========================================================================
+     4) 확정된 상태를 실제 화면(배경색/문구/깜빡임/스톱워치 표시)에 반영
+     ========================================================================= */
+  function applyState(state) {
+    const cfg = STATE_CONFIG[state] || STATE_CONFIG[CLASS_NONE];
+
+    // 배경색/글자색 변경 (CSS transition 덕분에 부드럽게 전환됨)
+    bannerEl.style.backgroundColor = cfg.bg;
+    bannerEl.style.color = cfg.color;
+    messageEl.textContent = cfg.message;
+
+    // 졸음일 때만 깜빡임 애니메이션 클래스 추가
+    if (cfg.blink) bannerEl.classList.add("blink");
+    else bannerEl.classList.remove("blink");
+
+    // 스톱워치 상태 표시 문구
+    swStateEl.textContent = cfg.runStopwatch ? "▶ 공부 시간 측정 중" : "⏸ 일시정지";
+  }
+
+  /* =========================================================================
+     5) 음성(TTS) 경고 — 브라우저 SpeechSynthesis 사용
+     ========================================================================= */
+  function speakWarning() {
+    if (!("speechSynthesis" in window)) return; // 미지원 브라우저 방어
+    const utter = new SpeechSynthesisUtterance("졸음이 감지되었습니다. 스트레칭을 해주세요");
+    utter.lang = "ko-KR";  // 한국어 발음
+    utter.rate = 1.0;      // 말하기 속도
+    window.speechSynthesis.cancel();   // 이전 음성이 남아있으면 정리
+    window.speechSynthesis.speak(utter);
+  }
+
+  /* =========================================================================
+     6) 스톱워치 — 1초마다 동작, '깨어있음'일 때만 누적
+     ========================================================================= */
+  setInterval(function () {
+    // 현재 확정 상태가 깨어있음이면 1초 추가
+    if (STATE_CONFIG[displayState] && STATE_CONFIG[displayState].runStopwatch) {
+      studySeconds++;
+      stopwatchEl.textContent = formatTime(studySeconds);
+    }
+  }, 1000);
+
+  /* 초 → "HH:MM:SS" 문자열로 변환 */
+  function formatTime(totalSec) {
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    return pad(h) + ":" + pad(m) + ":" + pad(s);
+  }
+
+  /* =========================================================================
+     7) 상태 로그 기록 — "시각 - 상태" 한 줄씩 추가
+     ========================================================================= */
+  function addLog(text) {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const timeStr = pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds());
+
+    const line = document.createElement("div");
+    line.className = "log-line";
+    line.innerHTML = '<span class="log-time">' + timeStr + '</span>' + text;
+
+    logBoxEl.prepend(line);          // 최신 기록을 맨 위에 추가
+  }
+
+  /* =========================================================================
+     8) 페이지가 열리면 자동으로 카메라 권한 요청 + 모델 로딩 시작
+        (음성 출력은 브라우저 정책상 사용자 클릭이 한 번 있어야 풀리는 경우가 있어,
+         첫 클릭/키 입력 때 무음으로 음성 엔진을 미리 깨워둠)
+     ========================================================================= */
+  window.addEventListener("load", init);
+
+  function unlockTTS() {
+    if (ttsUnlocked || !("speechSynthesis" in window)) return;
+    const warmUp = new SpeechSynthesisUtterance(" "); // 무음에 가까운 워밍업
+    warmUp.volume = 0;
+    window.speechSynthesis.speak(warmUp);
+    ttsUnlocked = true;
+  }
+  document.addEventListener("click", unlockTTS, { once: true });
+  document.addEventListener("keydown", unlockTTS, { once: true });
+  </script>
+</body>
+</html>
