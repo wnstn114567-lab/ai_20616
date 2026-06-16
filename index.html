@@ -3,205 +3,458 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>졸음 방지 도우미 (FaceMesh + Teachable Machine 하이브리드)</title>
+<title>졸음 방지 도우미</title>
 
 <!--
   ============================================================================
-   졸음 방지 도우미 — 하이브리드 버전
+   졸음 방지 도우미 (Drowsiness Prevention Helper)
   ============================================================================
-   [핵심 아이디어] 두 개의 AI를 "센서 융합(sensor fusion)" 방식으로 합쳤습니다.
-
-   1) MediaPipe FaceMesh  : 얼굴의 468개 점을 찾아
-        - 얼굴이 있는지(자리비움 판단)
-        - 눈이 감겼는지 (EAR = 눈 종횡비) 를 "정밀"하게 측정합니다.
-        → 티처블 머신이 약했던 '눈 인식'을 정확하게 대신합니다.
-
-   2) Teachable Machine   : 사람의 전체적인 '졸린 모습/자세'를 판단합니다.
-        → 고개를 푹 숙여 눈이 안 보이는 졸음처럼, EAR이 놓치는 상황을 잡아줍니다.
-
-   [두 결과를 합치는 규칙 (내가 정한 기준)]
-     - 얼굴이 없으면              → 자리비움(none)         (FaceMesh가 결정)
-     - 눈 감김 + 티처블도 졸음    → 1.5초만에 빠르게 경고  (둘 다 동의 → 확신↑)
-     - 눈 감김만 / 티처블만 졸음  → 3초 동안 신중히 확인 후 경고
-     - 그 외                      → 깨어있음(wake)
-   ============================================================================
+   · 디자인  : 애플 스타일 미니멀 다크모드 / 카드형 UI / 포인트 컬러 1개(초록)
+   · 감지방식: 두 AI를 "센서 융합(sensor fusion)"으로 결합한 하이브리드
+       1) MediaPipe FaceMesh : 얼굴 468점으로 얼굴 유무 + 눈 감김(EAR) 정밀 측정
+       2) Teachable Machine  : 전체적인 졸린 모습/자세 판단 (고개 숙임 등)
+   · 구성    : 상단 네비게이션 + 5개 탭 (실시간 감지 / 수면의 중요성 /
+              올바른 수면 습관 / 스트레칭 / 학습 기록)
+  ============================================================================
 -->
 
 <style>
-  /* ===================== 기본/다크모드 테마 ===================== */
-  * { box-sizing: border-box; }
+  /* ============================ 색상 토큰 ============================ */
+  :root {
+    --bg:        #1a1a1a;   /* 전체 배경 */
+    --card:      #2a2a2a;   /* 카드 배경 */
+    --card-2:    #242424;   /* 살짝 어두운 카드 */
+    --text:      #f5f5f7;   /* 기본 텍스트(흰색에 가까운) */
+    --dim:       #86868b;   /* 보조 텍스트(애플 그레이) */
+    --accent:    #34C759;   /* 포인트 컬러 — 초록 (딱 하나만) */
+    --warn:      #FFD60A;   /* 졸음 경고 — 노랑 (이때만 사용) */
+    --border:    #3a3a3c;   /* 기본 테두리 */
+    --blue:      #0A84FF;   /* 파란 포인트 */
+    --nav-bg:    rgba(10, 90, 200, 0.85); /* 메뉴바 배경 — 또렷한 파랑(반투명) */
+    --radius:    16px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    margin: 0;
-    font-family: "맑은 고딕", "Malgun Gothic", system-ui, sans-serif;
-    background: #12121f;
-    color: #e6e6e6;
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI",
+                 "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    font-weight: 300;                /* 기본은 얇게 */
+    background: var(--bg);
+    color: var(--text);
     min-height: 100vh;
+    padding-top: 56px;               /* 고정 네비 높이만큼 비워둠 */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ============================ 상단 네비게이션 ============================ */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 56px;
+    z-index: 100;
+    background: var(--nav-bg);                            /* 짙은 네이비(반투명) */
+    backdrop-filter: saturate(180%) blur(20px);          /* 배경 블러(반투명) */
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid rgba(120, 170, 255, 0.18);  /* 옅은 파랑 경계선 */
+  }
+  .nav-inner {
+    max-width: 1120px; height: 100%;
+    margin: 0 auto; padding: 0 24px;
+    display: flex; align-items: center; gap: 28px;
+  }
+  .brand { font-size: 16px; font-weight: 500; white-space: nowrap; }
+
+  .tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }            /* 모바일 가로 스크롤 */
+  .tab-btn {
+    position: relative;
+    background: none; border: none; cursor: pointer;
+    color: rgba(255, 255, 255, 0.72); font-size: 14px; font-weight: 300;
+    padding: 18px 10px; white-space: nowrap;
+    font-family: inherit; transition: color 0.3s ease;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); font-weight: 500; }
+  .tab-btn.active::after {                                /* 활성 탭 하단 흰색 언더라인(파란 바 위에서 또렷) */
+    content: ""; position: absolute; left: 8px; right: 8px; bottom: 0;
+    height: 2px; background: #ffffff; border-radius: 2px;
+  }
+
+  /* ============================ 졸음 경고 배너 (슬라이드다운) ============================ */
+  #alert-banner {
+    position: fixed; top: 56px; left: 0; right: 0; z-index: 90;
+    background: var(--warn); color: #1a1a1a;
+    text-align: center; font-weight: 500; font-size: 15px;
+    padding: 14px 16px;
+    transform: translateY(-130%);                        /* 평소엔 위로 숨김 */
+    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  #alert-banner.show { transform: translateY(0); }       /* 졸음 시 내려옴 */
+
+  /* ============================ 공통 레이아웃 ============================ */
+  main { max-width: 1120px; margin: 0 auto; padding: 36px 24px 64px; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .panel-title { font-size: 26px; font-weight: 500; margin-bottom: 6px; }
+  .panel-sub   { color: var(--dim); font-size: 15px; margin-bottom: 28px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);            /* 은은한 그림자 */
+  }
+  .card-label { color: var(--dim); font-size: 13px; font-weight: 400; margin-bottom: 14px; }
+
+  /* 교육용 카드만 hover 시 미세하게 확대 */
+  .hoverable { transition: transform 0.3s ease, border-color 0.3s ease; }
+  .hoverable:hover { transform: scale(1.02); border-color: #4a4a4c; }
+
+  /* ============================ 탭1: 실시간 감지 ============================ */
+  .detect-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    gap: 24px; align-items: start;
+  }
+  .detect-right { display: flex; flex-direction: column; gap: 24px; }
+
+  /* 웹캠 카드 — 테두리 색으로 상태 표현 */
+  .cam-card { border-width: 2px; transition: border-color 0.5s ease; }
+
+  .cam-stage {
+    position: relative;                 /* 메시 오버레이를 겹치기 위한 기준 */
+    width: 100%; max-width: 640px; margin: 0 auto;
+    aspect-ratio: 4 / 3;                /* 640x480 비율 유지 */
+    border-radius: 12px; overflow: hidden; background: #000;
+  }
+  .cam-stage canvas {                   /* 웹캠 캔버스가 꽉 채움 */
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
   }
 
-  header { text-align: center; margin-bottom: 20px; }
-  header h1 { margin: 0; font-size: 26px; letter-spacing: 1px; }
-  header p { margin: 6px 0 0; color: #9aa0b4; font-size: 14px; }
+  .cam-status {
+    display: flex; align-items: baseline; gap: 10px;
+    margin-top: 16px; padding: 0 4px;
+  }
+  #status-text { font-size: 20px; font-weight: 500; }
+  #status-prob { color: var(--dim); font-size: 14px; }
 
-  /* ===================== 좌우 2단 레이아웃 (Flexbox) ===================== */
-  .dashboard {
-    display: flex;
-    gap: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-start;
-    max-width: 1200px;
-    margin: 0 auto;
-  }
-  .panel {
-    background: #1c1c2e;
-    border: 1px solid #2c2c44;
-    border-radius: 16px;
-    padding: 18px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  }
-  .left-panel  { flex: 1 1 660px; max-width: 700px; }
-  .right-panel { flex: 1 1 320px; max-width: 420px; }
-
-  /* ===================== 왼쪽: 웹캠 ===================== */
-  #webcam-container {
-    width: 640px;
-    max-width: 100%;
-    height: 480px;
-    margin: 0 auto;
-    border-radius: 16px;
-    overflow: hidden;
-    background: #000;
-    display: flex; align-items: center; justify-content: center;
-  }
-  #webcam-container canvas { width: 100%; height: 100%; object-fit: cover; }
-
-  /* 두 AI의 실시간 감지 정보를 보여주는 칩(chip) 줄 */
-  #sensor-panel {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 14px;
-    justify-content: center;
-  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 0 4px; }
   .chip {
-    background: #2a2a40;
-    border: 1px solid #3a3a58;
-    border-radius: 20px;
-    padding: 8px 14px;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12.5px; font-weight: 400;
+    padding: 6px 12px; border-radius: 20px;
+    background: var(--card-2); border: 1px solid var(--border); color: var(--dim);
     white-space: nowrap;
   }
-  .chip b { color: #9aa0b4; font-weight: 600; margin-right: 4px; }
-  .chip.on   { background: #16361f; border-color: #2e7d4f; color: #9be7b4; } /* 양호/정상 */
-  .chip.warn { background: #3a3410; border-color: #c9a227; color: #ffe08a; } /* 주의 */
-  .chip.off  { background: #2a2a40; color: #8a8fa6; }                         /* 비활성 */
+  .chip.on   { border-color: var(--accent); color: var(--accent); }
+  .chip.warn { border-color: var(--warn);   color: var(--warn); }
 
-  /* 상태 배너 (상태에 따라 색/문구가 부드럽게 바뀜) */
-  #status-banner {
-    margin-top: 14px;
-    border-radius: 14px;
-    padding: 22px 18px;
-    text-align: center;
-    transition: background-color 0.6s ease, color 0.6s ease;
-    background: #cfd8dc;
-    color: #37474f;
+  /* 스톱워치 */
+  .stopwatch {
+    font-size: 56px; font-weight: 200; text-align: center;
+    font-variant-numeric: tabular-nums; letter-spacing: 1px; padding: 6px 0;
   }
-  #status-message { font-size: 26px; font-weight: 800; }
+  .sw-state { text-align: center; color: var(--dim); font-size: 13px; }
 
-  /* 졸음일 때 노란 배경이 부드럽게 깜빡이는 애니메이션 */
-  @keyframes blink-warning {
-    0%   { background-color: #FFFDE7; }
-    50%  { background-color: #FFF59D; }
-    100% { background-color: #FFFDE7; }
+  /* 로그 */
+  .log { max-height: 240px; overflow-y: auto; font-size: 14px; }
+  .log-line { padding: 9px 4px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; }
+  .log-line:last-child { border-bottom: none; }
+  .log-time { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .log-empty { color: var(--dim); font-size: 13px; padding: 8px 4px; }
+
+  /* ============================ 탭2: 수면의 중요성 (2x2) ============================ */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .info-card .ic { font-size: 34px; display: block; margin-bottom: 14px; }
+  .info-card h3 { font-size: 19px; font-weight: 500; margin-bottom: 10px; }
+  .info-card p  { color: #c7c7cc; font-size: 14.5px; line-height: 1.7; font-weight: 300; }
+  .source { color: var(--dim); font-size: 12.5px; margin-top: 22px; text-align: center; }
+
+  /* ============================ 탭3: 올바른 수면 습관 (번호 리스트) ============================ */
+  .habit-list { display: flex; flex-direction: column; gap: 16px; }
+  .habit { display: flex; gap: 18px; align-items: flex-start; }
+  .habit .num {
+    flex: none; width: 38px; height: 38px; border-radius: 50%;
+    background: var(--card-2); border: 1px solid var(--accent); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 500;
   }
-  .blink { animation: blink-warning 1s ease-in-out infinite; }
+  .habit h3 { font-size: 17px; font-weight: 500; margin-bottom: 6px; }
+  .habit p  { color: #c7c7cc; font-size: 14.5px; line-height: 1.7; font-weight: 300; }
 
-  /* ===================== 오른쪽: 스톱워치 + 로그 ===================== */
-  .section-title { font-size: 14px; color: #9aa0b4; margin: 0 0 8px; letter-spacing: 1px; }
-
-  #stopwatch {
-    font-size: 46px; font-weight: 800; text-align: center;
-    font-variant-numeric: tabular-nums; letter-spacing: 2px;
-    color: #6ee7a8; padding: 14px 0;
+  /* ============================ 탭4: 스트레칭 (유튜브) ============================ */
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .stretch-card h3 { font-size: 17px; font-weight: 500; margin-bottom: 14px; }
+  .video-wrap {
+    position: relative; width: 100%; padding-top: 56.25%;   /* 16:9 비율 */
+    border-radius: 12px; overflow: hidden; background: #000;
   }
-  #stopwatch-state { text-align: center; font-size: 13px; color: #9aa0b4; margin-bottom: 6px; }
+  .video-wrap iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+  .stretch-card p { color: var(--dim); font-size: 13.5px; margin-top: 14px; line-height: 1.6; }
 
-  hr.divider { border: none; border-top: 1px solid #2c2c44; margin: 18px 0; }
+  /* ============================ 탭5: 학습 기록 ============================ */
+  .stat-grid { margin-bottom: 24px; }
+  .stat { text-align: center; }
+  .big-num { font-size: 48px; font-weight: 200; font-variant-numeric: tabular-nums; margin-top: 6px; }
+  .accent { color: var(--accent); }
 
-  #log-box {
-    height: 200px; overflow-y: auto;
-    border: 1px solid #2c2c44; border-radius: 10px;
-    padding: 8px; font-size: 13px; line-height: 1.7;
+  .log-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .log-table th {
+    text-align: left; color: var(--dim); font-weight: 400; font-size: 13px;
+    padding: 10px 8px; border-bottom: 1px solid var(--border);
   }
-  #log-box .log-line { padding: 3px 6px; border-bottom: 1px dashed #2c2c4488; }
-  #log-box .log-time { color: #7f86a0; margin-right: 8px; }
+  .log-table td { padding: 11px 8px; border-bottom: 1px solid var(--border); font-weight: 300; }
+  .log-table tr:last-child td { border-bottom: none; }
+  .badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 400; }
+  .badge.awake  { background: rgba(52,199,89,0.15);  color: var(--accent); }
+  .badge.drowsy { background: rgba(255,214,10,0.15);  color: var(--warn); }
+  .badge.none   { background: rgba(255,255,255,0.08); color: var(--dim); }
 
-  /* "감지 방식" 설명 카드 (학교 보고서용 설명) */
-  #how-it-works {
-    margin-top: 16px; font-size: 12.5px; line-height: 1.7;
-    color: #b9bed4; background: #15152a;
-    border: 1px solid #2c2c44; border-radius: 10px; padding: 12px 14px;
+  .reset-btn {
+    margin-top: 24px; background: none; cursor: pointer;
+    border: 1px solid var(--border); color: var(--dim);
+    padding: 11px 20px; border-radius: 12px; font-size: 14px; font-family: inherit;
+    transition: transform 0.3s ease, border-color 0.3s ease, color 0.3s ease;
   }
-  #how-it-works b { color: #d7dcf0; }
+  .reset-btn:hover { transform: scale(1.02); border-color: #ff453a; color: #ff453a; }
 
-  #loading-badge {
-    display: inline-block; margin-top: 10px;
-    padding: 8px 16px; border-radius: 20px;
-    background: #2c2c44; color: #ffd27d; font-size: 14px;
+  /* ============================ 로딩 스피너 ============================ */
+  #loading {
+    position: fixed; inset: 0; z-index: 200;
+    background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+    transition: opacity 0.5s ease;
+  }
+  #loading.hide { opacity: 0; pointer-events: none; }
+  .spinner {
+    width: 38px; height: 38px; border-radius: 50%;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading p { color: var(--dim); font-size: 15px; }
+
+  /* ============================ 반응형 (모바일 768px 이하) ============================ */
+  @media (max-width: 768px) {
+    .detect-grid { grid-template-columns: 1fr; }   /* 좌우 2단 → 1단 */
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .nav-inner { gap: 16px; padding: 0 16px; }
+    main { padding: 24px 16px 48px; }
+    .stopwatch { font-size: 46px; }
   }
 </style>
 </head>
 
 <body>
-  <header>
-    <h1>🛌 졸음 방지 도우미 <span style="font-size:14px;color:#7f86a0;">FaceMesh × Teachable Machine</span></h1>
-    <p>눈 감김(FaceMesh)과 졸린 자세(Teachable Machine)를 함께 보고 졸음을 판단합니다.</p>
-    <div id="loading-badge">⏳ 모델 불러오는 중...</div>
-  </header>
-
-  <div class="dashboard">
-
-    <!-- ===================== 왼쪽 패널 ===================== -->
-    <div class="panel left-panel">
-      <div id="webcam-container"></div>
-
-      <!-- 두 AI의 실시간 감지 정보 -->
-      <div id="sensor-panel">
-        <div class="chip off" id="chip-face"><b>얼굴</b><span>대기</span></div>
-        <div class="chip off" id="chip-eye"><b>눈</b><span>대기</span></div>
-        <div class="chip off" id="chip-tm"><b>AI 판단</b><span>대기</span></div>
-      </div>
-
-      <!-- 최종 상태 배너 -->
-      <div id="status-banner">
-        <div id="status-message">감지 대기 중</div>
+  <!-- ===================== 상단 네비게이션 ===================== -->
+  <nav>
+    <div class="nav-inner">
+      <div class="brand">🌙 졸음 방지 도우미</div>
+      <div class="tabs" id="tabs">
+        <button class="tab-btn active" data-tab="detect">실시간 감지</button>
+        <button class="tab-btn" data-tab="why">수면의 중요성</button>
+        <button class="tab-btn" data-tab="habit">올바른 수면 습관</button>
+        <button class="tab-btn" data-tab="stretch">스트레칭</button>
+        <button class="tab-btn" data-tab="record">학습 기록</button>
       </div>
     </div>
+  </nav>
 
-    <!-- ===================== 오른쪽 패널 ===================== -->
-    <div class="panel right-panel">
-      <p class="section-title">누적 공부 시간 (깨어있을 때만 증가)</p>
-      <div id="stopwatch">00:00:00</div>
-      <div id="stopwatch-state">⏸ 대기 중</div>
+  <!-- ===================== 졸음 경고 배너 ===================== -->
+  <div id="alert-banner">😴 졸음이 감지되었습니다 — 일어나서 스트레칭을 해보세요</div>
 
-      <hr class="divider" />
+  <main>
+    <!-- ===================== 탭1: 실시간 감지 ===================== -->
+    <section class="tab-panel active" id="panel-detect">
+      <h2 class="panel-title">실시간 감지</h2>
+      <p class="panel-sub">FaceMesh(눈)와 Teachable Machine(자세) 두 AI가 함께 졸음을 감지합니다.</p>
 
-      <p class="section-title">졸음 기록 (잠든 / 일어난 시각)</p>
-      <div id="log-box"></div>
+      <div class="detect-grid">
+        <!-- 왼쪽: 웹캠 + 메시 -->
+        <div class="card cam-card" id="cam-card">
+          <div class="cam-stage" id="cam-stage">
+            <!-- 웹캠 캔버스는 JS에서 여기에 삽입됨 -->
+          </div>
+          <div class="cam-status">
+            <span id="status-text">대기 중</span>
+            <span id="status-prob"></span>
+          </div>
+          <div class="chips">
+            <span class="chip" id="chip-face">얼굴 —</span>
+            <span class="chip" id="chip-eye">눈 —</span>
+            <span class="chip" id="chip-ai">AI —</span>
+          </div>
+        </div>
 
-      <!-- 보고서용: 두 AI를 어떻게 합쳤는지 설명 -->
-      <div id="how-it-works">
-        <b>🔗 어떻게 합쳤나요?</b><br />
-        • <b>FaceMesh(눈)</b> : 눈 468점으로 눈 감김(EAR)을 정밀 측정<br />
-        • <b>Teachable(자세)</b> : 전체적인 졸린 모습을 판단 (고개 숙임 등)<br />
-        • <b>융합</b> : 둘 다 졸음이면 1.5초 만에 빠르게, 하나만이면 3초간 신중히 경고.
-        얼굴이 없으면 자리비움으로 처리합니다.
+        <!-- 오른쪽: 스톱워치 + 로그 -->
+        <div class="detect-right">
+          <div class="card">
+            <div class="card-label">공부 시간 (집중할 때만 증가)</div>
+            <div class="stopwatch" id="stopwatch">00:00:00</div>
+            <div class="sw-state" id="sw-state">⏸ 대기 중</div>
+          </div>
+          <div class="card">
+            <div class="card-label">상태 로그</div>
+            <div class="log" id="log"><div class="log-empty">아직 기록이 없습니다.</div></div>
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
 
+    <!-- ===================== 탭2: 수면의 중요성 ===================== -->
+    <section class="tab-panel" id="panel-why">
+      <h2 class="panel-title">수면의 중요성</h2>
+      <p class="panel-sub">왜 충분히 자야 할까요? 데이터로 알아보는 수면과 학습의 관계.</p>
+
+      <div class="grid-2">
+        <div class="card info-card hoverable">
+          <span class="ic">🧠</span>
+          <h3>기억력 30% 감소</h3>
+          <p>하루 6시간 미만 수면 시 해마의 기억 저장 기능이 약 30% 저하됩니다.
+             시험 전날 밤샘 공부가 오히려 역효과인 이유입니다.</p>
+        </div>
+        <div class="card info-card hoverable">
+          <span class="ic">⏰</span>
+          <h3>청소년 적정 수면: 8~10시간</h3>
+          <p>미국 수면재단(NSF) 권고 기준, 14~17세 청소년은 매일 8~10시간의 수면이 필요합니다.
+             한국 고등학생 평균 수면 시간은 5.7시간으로 크게 부족합니다.</p>
+        </div>
+        <div class="card info-card hoverable">
+          <span class="ic">📉</span>
+          <h3>수면 부족 = 성적 하락</h3>
+          <p>수면이 1시간 줄 때마다 집중력과 문제 해결 능력이 눈에 띄게 떨어집니다.
+             충분히 자고 공부하는 것이 같은 시간 대비 학습 효율이 훨씬 높습니다.</p>
+        </div>
+        <div class="card info-card hoverable">
+          <span class="ic">😴</span>
+          <h3>낮잠 20분의 효과</h3>
+          <p>20분 이내의 짧은 낮잠은 오후 집중력을 크게 회복시킵니다.
+             단, 30분을 넘기면 깊은 수면에 들어가 오히려 더 피곤해질 수 있습니다.</p>
+        </div>
+      </div>
+      <p class="source">출처: National Sleep Foundation, 대한수면학회</p>
+    </section>
+
+    <!-- ===================== 탭3: 올바른 수면 습관 ===================== -->
+    <section class="tab-panel" id="panel-habit">
+      <h2 class="panel-title">올바른 수면 습관</h2>
+      <p class="panel-sub">작은 습관이 수면의 질을 바꿉니다. 오늘부터 하나씩 실천해 보세요.</p>
+
+      <div class="habit-list">
+        <div class="card habit hoverable">
+          <div class="num">1</div>
+          <div>
+            <h3>매일 같은 시간에 자고 일어나기</h3>
+            <p>주말에도 기상 시간을 1시간 이상 늦추지 않는 것이 생체 리듬 유지에 중요합니다.</p>
+          </div>
+        </div>
+        <div class="card habit hoverable">
+          <div class="num">2</div>
+          <div>
+            <h3>취침 1시간 전 스마트폰 끄기</h3>
+            <p>블루라이트가 멜라토닌 분비를 억제해 잠들기 어렵게 만듭니다. 대신 가벼운 독서를 추천합니다.</p>
+          </div>
+        </div>
+        <div class="card habit hoverable">
+          <div class="num">3</div>
+          <div>
+            <h3>카페인은 오후 2시까지만</h3>
+            <p>카페인의 반감기는 약 5~6시간입니다. 오후 늦게 마신 커피나 에너지 음료는 수면을 방해합니다.</p>
+          </div>
+        </div>
+        <div class="card habit hoverable">
+          <div class="num">4</div>
+          <div>
+            <h3>잠들기 전 10분 스트레칭</h3>
+            <p>가벼운 스트레칭은 근육 긴장을 풀고 부교감 신경을 활성화시켜 수면의 질을 높여줍니다.</p>
+          </div>
+        </div>
+        <div class="card habit hoverable">
+          <div class="num">5</div>
+          <div>
+            <h3>잠자리 환경 정리</h3>
+            <p>어둡고 시원한(18~20°C) 방이 가장 좋은 수면 환경입니다. 이불과 베개도 편한 것으로 준비하세요.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 탭4: 스트레칭 ===================== -->
+    <section class="tab-panel" id="panel-stretch">
+      <h2 class="panel-title">스트레칭</h2>
+      <p class="panel-sub">졸음이 올 때, 공부 사이사이 따라 해 보세요.</p>
+
+      <div class="grid-3">
+        <div class="card stretch-card hoverable">
+          <h3>5분 목·어깨 스트레칭</h3>
+          <div class="video-wrap">
+            <iframe src="https://www.youtube.com/embed/SedzswEwpPw" title="목 어깨 스트레칭"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen></iframe>
+          </div>
+          <p>오래 앉아있어 뻣뻣해진 목과 어깨를 풀어주는 스트레칭</p>
+        </div>
+        <div class="card stretch-card hoverable">
+          <h3>의자에 앉아서 하는 전신 스트레칭</h3>
+          <div class="video-wrap">
+            <iframe src="https://www.youtube.com/embed/tAUf7aajBWE" title="앉아서 하는 전신 스트레칭"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen></iframe>
+          </div>
+          <p>자리에서 일어나지 않고도 할 수 있는 간단한 전신 스트레칭</p>
+        </div>
+        <div class="card stretch-card hoverable">
+          <h3>졸음 깨는 2분 스트레칭</h3>
+          <div class="video-wrap">
+            <iframe src="https://www.youtube.com/embed/2L2kYOHEiU0" title="졸음 깨는 스트레칭"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen></iframe>
+          </div>
+          <p>졸릴 때 바로 따라할 수 있는 빠른 스트레칭 루틴</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 탭5: 학습 기록 ===================== -->
+    <section class="tab-panel" id="panel-record">
+      <h2 class="panel-title">학습 기록</h2>
+      <p class="panel-sub">오늘의 집중 시간과 졸음 기록입니다. (새로고침해도 유지됩니다)</p>
+
+      <div class="grid-2 stat-grid">
+        <div class="card stat">
+          <div class="card-label">오늘 총 공부 시간</div>
+          <div class="big-num accent" id="rec-time">00:00:00</div>
+        </div>
+        <div class="card stat">
+          <div class="card-label">졸음 감지 횟수</div>
+          <div class="big-num" id="rec-count">0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">상태 변화 기록</div>
+        <table class="log-table">
+          <thead>
+            <tr><th>시각</th><th>상태</th><th>지속 시간</th></tr>
+          </thead>
+          <tbody id="rec-table">
+            <tr><td colspan="3" class="log-empty">아직 기록이 없습니다.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <button class="reset-btn" id="reset-btn">기록 초기화</button>
+    </section>
+  </main>
+
+  <!-- ===================== 로딩 스피너 ===================== -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>모델 불러오는 중...</p>
   </div>
 
   <!-- ===================== 외부 라이브러리 (CDN) ===================== -->
@@ -209,177 +462,174 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
   <!-- Teachable Machine 이미지 모델 라이브러리 -->
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-  <!-- MediaPipe FaceMesh : 얼굴 468점 랜드마크 (눈 감김 정밀 측정용) -->
+  <!-- MediaPipe FaceMesh : 얼굴 468점 랜드마크 (눈 감김 정밀 측정) -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
 
   <script>
   /* =========================================================================
      ★★★ 내 모델 주소 ★★★ (Teachable Machine Export URL, 끝에 '/' 포함)
+     나중에 본인 모델로 바꾸려면 이 한 줄만 수정하면 됩니다.
      ========================================================================= */
   const MODEL_URL = "https://teachablemachine.withgoogle.com/models/yioItSKiD/";
 
-  /* Teachable Machine 모델의 실제 클래스 라벨 (wake / sleep / none) */
-  const CLASS_AWAKE  = "wake";   // 깨어있음
-  const CLASS_DROWSY = "sleep";  // 졸음
-  const CLASS_NONE   = "none";   // 자리비움(여기선 FaceMesh가 주로 판단)
+  /* 내부에서 쓰는 표준 클래스 이름 (모델이 한글/영어 어느 라벨이어도 아래 normClass로 맞춰줌) */
+  const CLASS_AWAKE  = "awake";   // 깨어있음
+  const CLASS_DROWSY = "drowsy";  // 졸음
+  const CLASS_NONE   = "none";    // 자리비움
 
-  /* ---------------- 융합 기준값 (필요하면 여기 숫자만 바꾸면 됨) ---------------- */
+  /* ---------------- 융합 기준값 (필요하면 이 숫자들만 바꾸면 됨) ---------------- */
   const EAR_THRESHOLD   = 0.21;   // 눈 종횡비가 이 값보다 작으면 '눈 감김'으로 봄
-  const TM_CONF         = 0.60;   // 티처블이 'sleep'을 이 확률 이상으로 볼 때만 졸음으로 인정
-  const HOLD_FAST_MS    = 1500;   // 눈+AI 둘 다 졸음일 때: 빠른 경고까지 필요한 지속시간
-  const HOLD_NORMAL_MS  = 3000;   // 한쪽 근거만일 때: 신중한 경고까지 필요한 지속시간
-  const TTS_COOLDOWN_MS = 10000;  // 음성 경고 사이 최소 간격(반복 방지)
+  const TM_CONF         = 0.60;   // 티처블이 '졸음'을 이 확률 이상으로 볼 때만 인정
+  const HOLD_FAST_MS    = 1500;   // 눈+AI 둘 다 졸음일 때: 빠른 경고까지 지속시간
+  const HOLD_NORMAL_MS  = 3000;   // 한쪽 근거만일 때: 신중한 경고까지 지속시간(=3초)
+  const TTS_COOLDOWN_MS = 10000;  // 음성 경고 사이 최소 간격(반복 방지, 10초)
 
   /* FaceMesh에서 눈 테두리에 해당하는 점들의 번호 (EAR 계산용) */
   const RIGHT_EYE = [33, 160, 158, 133, 153, 144];   // 오른쪽 눈 6점
   const LEFT_EYE  = [362, 385, 387, 263, 373, 380];  // 왼쪽 눈 6점
 
-  /* ===================== 전역 변수 ===================== */
-  let model, webcam, maxPredictions;     // Teachable Machine 관련
-  let faceMesh;                          // MediaPipe FaceMesh 관련
-  let faceMeshReady = false;             // FaceMesh 사용 가능 여부
-  let firstFrameDone = false;            // 첫 프레임 처리 완료(로딩 배지 숨김용)
+  const LS_KEY = "drowsyHelperV2";    // localStorage 저장 키
 
-  // 매 프레임 갱신되는 "원시 감지값"
-  let tmTopClass = CLASS_NONE;           // 티처블이 뽑은 최상위 클래스
-  let tmSleepProb = 0;                   // 티처블의 'sleep' 확률
-  let faceDetected = false;              // FaceMesh: 얼굴이 보이는가
-  let currentEAR = null;                 // FaceMesh: 현재 눈 종횡비(EAR)
+  /* 모델 라벨(한글이든 영어든)을 표준 클래스로 변환 */
+  function normClass(name) {
+    const n = (name || "").toLowerCase().trim();
+    if (n === "wake" || n === "awake" || name === "깨어있음") return CLASS_AWAKE;
+    if (n === "sleep" || n === "drowsy" || name === "졸음")   return CLASS_DROWSY;
+    return CLASS_NONE;
+  }
+
+  /* ===================== 전역 변수 ===================== */
+  let model, webcam, faceMesh;
+  let faceMeshReady = false, firstFrameDone = false, modelLoaded = false;
+
+  // 매 프레임 갱신되는 원시 감지값
+  let tmTopClass = CLASS_NONE, tmTopProb = 0, tmSleepProb = 0;
+  let faceDetected = false, currentEAR = null;
 
   // 상태/타이머
-  let displayState = CLASS_NONE;         // 화면에 확정 표시 중인 상태
-  let drowsyStartTime = null;            // 졸음 근거가 처음 나타난 시각(지속시간 측정)
-  let lastWarningTime = -Infinity;       // 마지막 음성 경고 시각(쿨다운)
-  let drowsyReason = "";                 // 졸음으로 판단한 근거(로그용)
+  let displayState = CLASS_NONE;
+  let drowsyStartTime = null, lastWarningTime = -Infinity, drowsyReason = "";
+  let ttsUnlocked = false;
 
-  let studySeconds = 0;                  // 누적 공부 시간(초)
-  let ttsUnlocked = false;               // 음성 출력 잠금 해제 여부
+  // 기록(학습 기록 탭 + localStorage)
+  let studySeconds = 0;
+  let drowsyCount = 0;
+  let history = [];                 // {time, state, durationSec, startMs}
+  let activeTab = "detect";
 
-  /* 상태별 화면 설정 (배경색/글자색/문구/스톱워치 작동 여부) */
+  /* 상태별 화면 설정 */
   const STATE_CONFIG = {
-    [CLASS_AWAKE]:  { bg: "#E8F5E9", color: "#1b5e20", message: "집중 잘 되고 있어요!",                 blink: false, runStopwatch: true  },
-    [CLASS_DROWSY]: { bg: "#FFFDE7", color: "#f57f17", message: "졸음 감지! 일어나서 스트레칭하세요", blink: true,  runStopwatch: false },
-    [CLASS_NONE]:   { bg: "#CFD8DC", color: "#37474f", message: "감지 대기 중",                          blink: false, runStopwatch: false },
+    [CLASS_AWAKE]:  { text: "집중 중", border: "var(--accent)", run: true,  badge: "awake",  label: "집중 중" },
+    [CLASS_DROWSY]: { text: "졸음",    border: "var(--warn)",   run: false, badge: "drowsy", label: "졸음" },
+    [CLASS_NONE]:   { text: "대기 중", border: "var(--border)", run: false, badge: "none",   label: "대기 중" },
   };
 
   /* DOM 요소 */
-  const bannerEl    = document.getElementById("status-banner");
-  const messageEl   = document.getElementById("status-message");
-  const stopwatchEl = document.getElementById("stopwatch");
-  const swStateEl   = document.getElementById("stopwatch-state");
-  const logBoxEl    = document.getElementById("log-box");
-  const loadingBadge= document.getElementById("loading-badge");
-  const chipFace    = document.getElementById("chip-face");
-  const chipEye     = document.getElementById("chip-eye");
-  const chipTm      = document.getElementById("chip-tm");
+  const $ = (id) => document.getElementById(id);
+  const camCard = $("cam-card"), statusText = $("status-text"), statusProb = $("status-prob");
+  const chipFace = $("chip-face"), chipEye = $("chip-eye"), chipAi = $("chip-ai");
+  const stopwatchEl = $("stopwatch"), swStateEl = $("sw-state"), logEl = $("log");
+  const bannerEl = $("alert-banner"), loadingEl = $("loading");
+  const recTimeEl = $("rec-time"), recCountEl = $("rec-count"), recTableEl = $("rec-table");
 
   /* =========================================================================
-     1) 초기화 — Teachable Machine 모델 + FaceMesh + 웹캠 준비
+     1) 초기화 — 저장된 기록 복원 → 모델 + FaceMesh + 웹캠 준비
      ========================================================================= */
   async function init() {
-    try {
-      // (1) Teachable Machine 이미지 모델 로드
-      model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
-      maxPredictions = model.getTotalClasses();
+    loadData();          // 이전 기록 복원(같은 날일 때만)
+    renderAll();
 
-      // (2) FaceMesh 준비
+    try {
+      model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+      modelLoaded = true;
+
       setupFaceMesh();
 
-      // (3) 웹캠 준비 (640x480, 거울 모드) — 여기서 카메라 권한 요청
-      webcam = new tmImage.Webcam(640, 480, true);
-      await webcam.setup();
+      webcam = new tmImage.Webcam(640, 480, true);   // 640x480, 거울 모드
+      await webcam.setup();                          // 카메라 권한 요청
       await webcam.play();
-      document.getElementById("webcam-container").appendChild(webcam.canvas);
+      // 웹캠 캔버스를 화면에 추가
+      $("cam-stage").appendChild(webcam.canvas);
 
-      loadingBadge.textContent = "🔍 얼굴 감지 준비 중...";
-
-      // (4) 매 프레임 반복 시작
       window.requestAnimationFrame(loop);
     } catch (err) {
-      loadingBadge.textContent = "⚠ 초기화 실패: " + err.message;
-      loadingBadge.style.color = "#ff8a80";
+      loadingEl.innerHTML = '<p style="color:#ff453a;">⚠ 초기화 실패: ' + err.message +
+                            '<br>카메라 권한을 확인해 주세요.</p>';
       console.error(err);
     }
   }
 
-  /* FaceMesh 객체를 만들고 옵션을 설정 */
+  /* FaceMesh 준비 */
   function setupFaceMesh() {
     if (typeof FaceMesh === "undefined") {
-      // CDN 로드 실패 시: 티처블 단독으로라도 동작하도록 함
-      console.error("FaceMesh 라이브러리를 불러오지 못했습니다. 티처블 단독 모드로 동작합니다.");
+      console.error("FaceMesh 로드 실패 → 티처블 단독 모드로 동작합니다.");
       return;
     }
     faceMesh = new FaceMesh({
-      // 모델/wasm 파일을 같은 CDN 경로에서 불러오게 함
-      locateFile: (file) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/" + file,
+      locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/" + f,
     });
     faceMesh.setOptions({
-      maxNumFaces: 1,            // 한 사람만
-      refineLandmarks: true,     // 눈/홍채 점을 더 정밀하게 → EAR 정확도↑
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      maxNumFaces: 1, refineLandmarks: true,
+      minDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
     });
-    // FaceMesh 처리가 끝나면 onFaceMeshResults 가 호출됨
     faceMesh.onResults(onFaceMeshResults);
     faceMeshReady = true;
   }
 
   /* =========================================================================
-     2) 매 프레임 반복: 웹캠 갱신 → 티처블 예측 → FaceMesh 분석 → 융합
+     2) 매 프레임 반복 (탭을 벗어나도 백그라운드에서 계속 동작)
      ========================================================================= */
   async function loop() {
-    webcam.update();                 // 웹캠 한 프레임 갱신
-    await predictTeachable();        // ① 티처블 머신 예측
+    webcam.update();
+    await predictTeachable();
     if (faceMeshReady) {
-      try {
-        await faceMesh.send({ image: webcam.canvas }); // ② FaceMesh 분석(→ onResults)
-      } catch (e) { console.warn("FaceMesh 처리 오류:", e); }
+      try { await faceMesh.send({ image: webcam.canvas }); }
+      catch (e) { console.warn("FaceMesh 오류:", e); }
     } else {
-      // FaceMesh 미사용(로드 실패) → 얼굴은 있다고 가정하고 티처블만으로 판단
       faceDetected = true; currentEAR = null;
-      if (!firstFrameDone) { firstFrameDone = true; loadingBadge.style.display = "none"; }
+      finishFirstFrame();
     }
-    fuse();                          // ③ 두 결과를 합쳐 최종 상태 결정
-    updateSensorPanel();             // ④ 칩(얼굴/눈/AI) 정보 갱신
+    fuse();
+    updateChips();
     window.requestAnimationFrame(loop);
   }
 
-  /* ① 티처블 머신: 최상위 클래스와 'sleep' 확률을 구함 */
+  /* ① 티처블 머신 예측 */
   async function predictTeachable() {
     const prediction = await model.predict(webcam.canvas);
     let top = prediction[0];
     for (let i = 1; i < prediction.length; i++) {
       if (prediction[i].probability > top.probability) top = prediction[i];
     }
-    tmTopClass = top.className;
-    const sleepPred = prediction.find((p) => p.className === CLASS_DROWSY);
-    tmSleepProb = sleepPred ? sleepPred.probability : 0;
+    tmTopClass = normClass(top.className);
+    tmTopProb = top.probability;
+    tmSleepProb = 0;
+    for (const p of prediction) {
+      if (normClass(p.className) === CLASS_DROWSY) tmSleepProb = p.probability;
+    }
   }
 
-  /* ② FaceMesh 결과 처리: 얼굴 유무 + 눈 감김(EAR) 계산 */
+  /* ② FaceMesh 결과: 얼굴 유무 + 눈 EAR + 메시 그리기 */
   function onFaceMeshResults(results) {
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
       faceDetected = true;
-      const lm = results.multiFaceLandmarks[0];     // 468개 점
+      const lm = results.multiFaceLandmarks[0];
       const W = webcam.canvas.width, H = webcam.canvas.height;
-      // 양쪽 눈 EAR 의 평균을 사용 (한쪽만 가려져도 평균으로 보정)
-      const rightE = eyeEAR(lm, RIGHT_EYE, W, H);
-      const leftE  = eyeEAR(lm, LEFT_EYE,  W, H);
-      currentEAR = (rightE + leftE) / 2;
+      currentEAR = (eyeEAR(lm, RIGHT_EYE, W, H) + eyeEAR(lm, LEFT_EYE, W, H)) / 2;
     } else {
-      faceDetected = false;
-      currentEAR = null;
+      faceDetected = false; currentEAR = null;
     }
-    // 첫 결과가 오면 로딩 배지 숨김
-    if (!firstFrameDone) { firstFrameDone = true; loadingBadge.style.display = "none"; }
+    finishFirstFrame();
   }
 
-  /*
-    EAR(Eye Aspect Ratio, 눈 종횡비) 계산.
-    눈을 6개 점 p1~p6 로 보고  EAR = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
-    - 눈을 뜨면 세로 거리가 커서 EAR 이 크고, 감으면 0에 가까워짐.
-    - 좌표는 0~1 정규화 값이라 화면 가로/세로(W,H)를 곱해 실제 픽셀 거리로 변환.
-  */
+  function finishFirstFrame() {
+    if (firstFrameDone) return;
+    firstFrameDone = true;
+    loadingEl.classList.add("hide");
+    setTimeout(() => (loadingEl.style.display = "none"), 500);
+  }
+
+  /* EAR(눈 종횡비) = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|) */
   function eyeEAR(lm, idx, W, H) {
     const p = idx.map((i) => ({ x: lm[i].x * W, y: lm[i].y * H }));
     const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -392,33 +642,28 @@
   function fuse() {
     const now = performance.now();
 
-    // (A) 얼굴이 없으면 무조건 '자리비움' (FaceMesh 가 최종 권한)
-    if (!faceDetected) {
-      drowsyStartTime = null;
-      commitState(CLASS_NONE);
-      return;
-    }
+    // (A) 얼굴이 없으면 '자리비움'
+    if (!faceDetected) { drowsyStartTime = null; commitState(CLASS_NONE); return; }
 
-    // (B) 두 시스템의 졸음 근거를 각각 계산
-    const eyesClosed = (currentEAR !== null && currentEAR < EAR_THRESHOLD);          // FaceMesh: 눈 감김
-    const tmSleep    = (tmTopClass === CLASS_DROWSY && tmSleepProb >= TM_CONF);       // Teachable: 졸린 모습
+    // (B) 각 시스템의 졸음 근거
+    const eyesClosed = (currentEAR !== null && currentEAR < EAR_THRESHOLD);
+    const tmSleep    = (tmTopClass === CLASS_DROWSY && tmSleepProb >= TM_CONF);
 
-    // (C) 근거 조합에 따라 '졸음 후보'인지와 '필요 지속시간'을 정함
+    // (C) 근거 조합 → 후보 여부와 필요한 지속시간
     let candidate = false, holdNeeded = HOLD_NORMAL_MS, reason = "";
     if (eyesClosed && tmSleep) { candidate = true; holdNeeded = HOLD_FAST_MS;   reason = "눈 감김 + AI 동의"; }
     else if (eyesClosed)       { candidate = true; holdNeeded = HOLD_NORMAL_MS; reason = "눈 감김"; }
     else if (tmSleep)          { candidate = true; holdNeeded = HOLD_NORMAL_MS; reason = "AI 자세 감지"; }
 
-    // (D) 졸음 후보가 '지속시간'을 채우면 확정, 아니면 깨어있음 유지(짧은 깜빡임 무시)
+    // (D) 지속시간을 채우면 확정 (짧은 깜빡임 무시)
     if (candidate) {
       if (drowsyStartTime === null) drowsyStartTime = now;
       if (now - drowsyStartTime >= holdNeeded) {
         drowsyReason = reason;
         commitState(CLASS_DROWSY);
-        // 음성 경고는 10초 쿨다운으로만 반복
         if (now - lastWarningTime >= TTS_COOLDOWN_MS) { speakWarning(); lastWarningTime = now; }
       } else {
-        commitState(CLASS_AWAKE);  // 아직 확정 전 → 깨어있음으로 표시
+        commitState(CLASS_AWAKE);
       }
     } else {
       drowsyStartTime = null;
@@ -426,117 +671,207 @@
     }
   }
 
-  /* 상태가 '바뀔 때만' 화면/로그를 갱신 */
+  /* 상태가 바뀔 때만 화면/로그/기록 갱신 */
   function commitState(newState) {
     if (newState === displayState) return;
     const old = displayState;
     displayState = newState;
     applyState(newState);
 
-    // 로그는 '잠든 시각' 과 '졸음에서 다시 깨어난 시각' 만 남김
+    // 졸음 진입 시: 다른 탭이면 실시간 감지 탭으로 자동 전환 + 배너
     if (newState === CLASS_DROWSY) {
-      addLog("😴 잠들었어요" + (drowsyReason ? " (" + drowsyReason + ")" : ""));
-    } else if (newState === CLASS_AWAKE && old === CLASS_DROWSY) {
-      addLog("☀️ 다시 일어났어요");
+      drowsyCount++;
+      if (activeTab !== "detect") switchTab("detect");
+      bannerEl.classList.add("show");
+    } else {
+      bannerEl.classList.remove("show");
     }
+
+    // 기록(history)에 한 줄 추가 — '자리비움'은 기록하지 않아 깔끔하게 유지
+    if (newState === CLASS_DROWSY || (newState === CLASS_AWAKE && old === CLASS_DROWSY) ||
+        (newState === CLASS_AWAKE && old === CLASS_NONE)) {
+      pushHistory(newState);
+    }
+    saveData();
+    renderLog();
+    renderTable();
   }
 
-  /* 확정 상태를 실제 화면(배경/문구/깜빡임/스톱워치 표시)에 반영 */
+  /* 확정 상태를 화면(테두리/문구/스톱워치)에 반영 */
   function applyState(state) {
     const cfg = STATE_CONFIG[state] || STATE_CONFIG[CLASS_NONE];
-    bannerEl.style.backgroundColor = cfg.bg;
-    bannerEl.style.color = cfg.color;
-    messageEl.textContent = cfg.message;
-    if (cfg.blink) bannerEl.classList.add("blink");
-    else bannerEl.classList.remove("blink");
-    swStateEl.textContent = cfg.runStopwatch ? "▶ 공부 시간 측정 중" : "⏸ 일시정지";
+    camCard.style.borderColor = cfg.border;
+    statusText.textContent = cfg.text;
+    statusText.style.color = (state === CLASS_DROWSY) ? "var(--warn)"
+                            : (state === CLASS_AWAKE)  ? "var(--accent)" : "var(--text)";
+    swStateEl.textContent = cfg.run ? "▶ 공부 시간 측정 중" : "⏸ 일시정지";
   }
 
   /* =========================================================================
-     4) 칩(얼굴/눈/AI) 실시간 표시 — 두 AI가 동작 중임을 눈으로 확인
+     4) 칩(얼굴/눈/AI) 실시간 표시
      ========================================================================= */
-  function updateSensorPanel() {
-    // 얼굴(FaceMesh)
-    setChip(chipFace, "얼굴",
-      faceDetected ? "인식됨" : "없음",
-      faceDetected ? "on" : "off");
+  function updateChips() {
+    setChip(chipFace, "얼굴 " + (faceDetected ? "인식됨" : "없음"), faceDetected ? "on" : "");
 
-    // 눈(FaceMesh EAR)
     if (!faceDetected || currentEAR === null) {
-      setChip(chipEye, "눈", "-", "off");
+      setChip(chipEye, "눈 —", "");
     } else {
       const closed = currentEAR < EAR_THRESHOLD;
-      setChip(chipEye, "눈",
-        (closed ? "감김 😑" : "열림 👁️") + " (EAR " + currentEAR.toFixed(2) + ")",
-        closed ? "warn" : "on");
+      setChip(chipEye, "눈 " + (closed ? "감김" : "열림") + " (" + currentEAR.toFixed(2) + ")",
+              closed ? "warn" : "on");
     }
 
-    // AI 판단(Teachable Machine)
-    let tmText = "—", tmCls = "off";
-    if (tmTopClass === CLASS_DROWSY) { tmText = "졸림"; tmCls = "warn"; }
-    else if (tmTopClass === CLASS_AWAKE) { tmText = "깨어있음"; tmCls = "on"; }
-    setChip(chipTm, "AI 판단", tmText, tmCls);
-  }
+    let t = "AI —", c = "";
+    if (tmTopClass === CLASS_DROWSY) { t = "AI 졸림"; c = "warn"; }
+    else if (tmTopClass === CLASS_AWAKE) { t = "AI 깨어있음"; c = "on"; }
+    setChip(chipAi, t, c);
 
-  /* 칩 하나의 내용/색을 갱신하는 도우미 함수 */
-  function setChip(el, label, value, cls) {
-    el.innerHTML = "<b>" + label + "</b><span>" + value + "</span>";
-    el.className = "chip " + cls;
+    // 웹캠 아래 상태 옆 확률 표시
+    statusProb.textContent = modelLoaded ? "AI 신뢰도 " + Math.round(tmTopProb * 100) + "%" : "";
   }
+  function setChip(el, text, cls) { el.textContent = text; el.className = "chip " + cls; }
 
   /* =========================================================================
      5) 음성(TTS) 경고
      ========================================================================= */
   function speakWarning() {
     if (!("speechSynthesis" in window)) return;
-    const utter = new SpeechSynthesisUtterance("졸음이 감지되었습니다. 스트레칭을 해주세요");
-    utter.lang = "ko-KR";
-    utter.rate = 1.0;
+    const u = new SpeechSynthesisUtterance("졸음이 감지되었습니다. 스트레칭을 해주세요");
+    u.lang = "ko-KR"; u.rate = 1.0;
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utter);
+    window.speechSynthesis.speak(u);
   }
 
   /* =========================================================================
-     6) 스톱워치 — 1초마다, '깨어있음'일 때만 누적
+     6) 스톱워치 — 1초마다, '집중 중'일 때만 누적
      ========================================================================= */
-  setInterval(function () {
-    if (STATE_CONFIG[displayState] && STATE_CONFIG[displayState].runStopwatch) {
+  let saveTick = 0;
+  setInterval(() => {
+    const cfg = STATE_CONFIG[displayState];
+    if (cfg && cfg.run) {
       studySeconds++;
       stopwatchEl.textContent = formatTime(studySeconds);
+      recTimeEl.textContent = formatTime(studySeconds);
+      if (++saveTick % 5 === 0) saveData();   // 5초마다 저장
     }
   }, 1000);
 
-  function formatTime(totalSec) {
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    const pad = (n) => String(n).padStart(2, "0");
-    return pad(h) + ":" + pad(m) + ":" + pad(s);
+  function formatTime(sec) {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const p = (n) => String(n).padStart(2, "0");
+    return p(h) + ":" + p(m) + ":" + p(s);
   }
 
   /* =========================================================================
-     7) 로그 — "시각 + 내용" 한 줄씩 (최신이 위로)
+     7) 기록(history) + 렌더링
      ========================================================================= */
-  function addLog(text) {
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    const timeStr = pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds());
-    const line = document.createElement("div");
-    line.className = "log-line";
-    line.innerHTML = '<span class="log-time">' + timeStr + '</span>' + text;
-    logBoxEl.prepend(line);
+  function pushHistory(state) {
+    const now = Date.now();
+    if (history.length) {
+      const last = history[history.length - 1];
+      if (last.durationSec === null) last.durationSec = Math.max(0, Math.round((now - last.startMs) / 1000));
+    }
+    const d = new Date(now), p = (n) => String(n).padStart(2, "0");
+    history.push({
+      time: p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds()),
+      state, durationSec: null, startMs: now,
+    });
+    if (history.length > 100) history.shift();   // 너무 길어지면 오래된 것 제거
+  }
+
+  function renderLog() {
+    if (!history.length) { logEl.innerHTML = '<div class="log-empty">아직 기록이 없습니다.</div>'; return; }
+    logEl.innerHTML = history.slice().reverse().map((h) =>
+      '<div class="log-line"><span class="log-time">' + h.time + '</span><span>' +
+      STATE_CONFIG[h.state].label + '</span></div>'
+    ).join("");
+  }
+
+  function renderTable() {
+    if (!history.length) {
+      recTableEl.innerHTML = '<tr><td colspan="3" class="log-empty">아직 기록이 없습니다.</td></tr>';
+      return;
+    }
+    recTableEl.innerHTML = history.slice().reverse().map((h) => {
+      const cfg = STATE_CONFIG[h.state];
+      const dur = (h.durationSec === null) ? "진행 중" : formatDur(h.durationSec);
+      return '<tr><td>' + h.time + '</td><td><span class="badge ' + cfg.badge + '">' +
+             cfg.label + '</span></td><td>' + dur + '</td></tr>';
+    }).join("");
+  }
+
+  function formatDur(sec) {
+    if (sec < 60) return sec + "초";
+    return Math.floor(sec / 60) + "분 " + (sec % 60) + "초";
+  }
+
+  function renderAll() {
+    stopwatchEl.textContent = formatTime(studySeconds);
+    recTimeEl.textContent = formatTime(studySeconds);
+    recCountEl.textContent = drowsyCount;
+    renderLog();
+    renderTable();
   }
 
   /* =========================================================================
-     8) 페이지 로드 시 자동 시작 + 음성 잠금 해제(첫 클릭/키 입력 때)
+     8) localStorage 저장/복원 (날짜가 바뀌면 새로 시작)
+     ========================================================================= */
+  function todayStr() {
+    const d = new Date(), p = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  function saveData() {
+    recCountEl.textContent = drowsyCount;
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        date: todayStr(), studySeconds, drowsyCount, history,
+      }));
+    } catch (e) {}
+  }
+  function loadData() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d.date !== todayStr()) { localStorage.removeItem(LS_KEY); return; }  // 새 날짜면 초기화
+      studySeconds = d.studySeconds || 0;
+      drowsyCount = d.drowsyCount || 0;
+      history = Array.isArray(d.history) ? d.history : [];
+    } catch (e) {}
+  }
+
+  /* 기록 초기화 버튼 */
+  $("reset-btn").addEventListener("click", () => {
+    if (!confirm("오늘의 모든 학습 기록을 삭제할까요?")) return;
+    studySeconds = 0; drowsyCount = 0; history = [];
+    localStorage.removeItem(LS_KEY);
+    renderAll();
+  });
+
+  /* =========================================================================
+     9) 탭 전환
+     ========================================================================= */
+  function switchTab(name) {
+    activeTab = name;
+    document.querySelectorAll(".tab-btn").forEach((b) =>
+      b.classList.toggle("active", b.dataset.tab === name));
+    document.querySelectorAll(".tab-panel").forEach((p) =>
+      p.classList.toggle("active", p.id === "panel-" + name));
+  }
+  $("tabs").addEventListener("click", (e) => {
+    const btn = e.target.closest(".tab-btn");
+    if (btn) switchTab(btn.dataset.tab);
+  });
+
+  /* =========================================================================
+     10) 시작 + 음성 잠금 해제(첫 클릭/키 입력 시)
      ========================================================================= */
   window.addEventListener("load", init);
 
   function unlockTTS() {
     if (ttsUnlocked || !("speechSynthesis" in window)) return;
-    const warmUp = new SpeechSynthesisUtterance(" ");
-    warmUp.volume = 0;
-    window.speechSynthesis.speak(warmUp);
+    const w = new SpeechSynthesisUtterance(" "); w.volume = 0;
+    window.speechSynthesis.speak(w);
     ttsUnlocked = true;
   }
   document.addEventListener("click", unlockTTS, { once: true });
