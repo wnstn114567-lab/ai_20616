@@ -509,7 +509,7 @@
   // 상태/타이머
   let displayState = CLASS_NONE;
   let drowsyStartTime = null, lastWarningTime = -Infinity, drowsyReason = "";
-  let ttsUnlocked = false;
+  let audioUnlocked = false, audioCtx = null;
 
   // 기록(학습 기록 탭 + localStorage)
   let studySeconds = 0;
@@ -661,7 +661,7 @@
       if (now - drowsyStartTime >= holdNeeded) {
         drowsyReason = reason;
         commitState(CLASS_DROWSY);
-        if (now - lastWarningTime >= TTS_COOLDOWN_MS) { speakWarning(); lastWarningTime = now; }
+        if (now - lastWarningTime >= TTS_COOLDOWN_MS) { alertUser(); lastWarningTime = now; }
       } else {
         commitState(CLASS_AWAKE);
       }
@@ -732,8 +732,52 @@
   function setChip(el, text, cls) { el.textContent = text; el.className = "chip " + cls; }
 
   /* =========================================================================
-     5) 음성(TTS) 경고
+     5) 경고 — 사이렌 소리 + 음성(TTS)
      ========================================================================= */
+  /* 사이렌용 AudioContext (브라우저 자동재생 정책상 첫 클릭 때 깨워둠) */
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+  }
+
+  /* 졸음 경고: 사이렌 → 잠시 후 음성 안내 (겹치지 않게 순서대로) */
+  function alertUser() {
+    playSiren();
+    setTimeout(speakWarning, 1600);   // 사이렌이 끝난 뒤 음성이 또렷이 들리도록
+  }
+
+  /* Web Audio API로 사이렌 소리를 직접 합성 (외부 음원 파일 불필요) */
+  function playSiren() {
+    try {
+      const ctx = getAudioCtx();
+      const t0 = ctx.currentTime;
+      const osc = ctx.createOscillator();   // 소리를 만드는 발진기
+      const gain = ctx.createGain();        // 음량 조절
+      osc.type = "sawtooth";                // 톱니파 — 사이렌 특유의 날카로운 음색
+      osc.connect(gain); gain.connect(ctx.destination);
+
+      // 음량: 부드럽게 켜고 끝에서 페이드아웃 ('툭' 끊김 방지)
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.2, t0 + 0.05);
+
+      // 사이렌: 600Hz ↔ 1100Hz 를 두 번 왕복하며 '위잉~위잉~'
+      const lo = 600, hi = 1100, step = 0.35;
+      let t = t0;
+      osc.frequency.setValueAtTime(lo, t);
+      for (let i = 0; i < 2; i++) {
+        osc.frequency.linearRampToValueAtTime(hi, t + step); t += step;
+        osc.frequency.linearRampToValueAtTime(lo, t + step); t += step;
+      }
+      gain.gain.setValueAtTime(0.2, t - 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t);   // 페이드아웃
+
+      osc.start(t0);
+      osc.stop(t + 0.05);
+    } catch (e) { console.warn("사이렌 재생 실패:", e); }
+  }
+
+  /* 음성 안내 */
   function speakWarning() {
     if (!("speechSynthesis" in window)) return;
     const u = new SpeechSynthesisUtterance("졸음이 감지되었습니다. 스트레칭을 해주세요");
@@ -868,14 +912,19 @@
      ========================================================================= */
   window.addEventListener("load", init);
 
-  function unlockTTS() {
-    if (ttsUnlocked || !("speechSynthesis" in window)) return;
-    const w = new SpeechSynthesisUtterance(" "); w.volume = 0;
-    window.speechSynthesis.speak(w);
-    ttsUnlocked = true;
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    // 음성(TTS) 워밍업
+    if ("speechSynthesis" in window) {
+      const w = new SpeechSynthesisUtterance(" "); w.volume = 0;
+      window.speechSynthesis.speak(w);
+    }
+    // 사이렌용 오디오 컨텍스트 미리 깨워두기
+    try { getAudioCtx(); } catch (e) {}
   }
-  document.addEventListener("click", unlockTTS, { once: true });
-  document.addEventListener("keydown", unlockTTS, { once: true });
+  document.addEventListener("click", unlockAudio, { once: true });
+  document.addEventListener("keydown", unlockAudio, { once: true });
   </script>
 </body>
 </html>
