@@ -231,6 +231,17 @@
   }
   .time-reset-btn:hover { transform: scale(1.02); border-color: var(--accent); color: var(--accent); }
 
+  /* 졸음 순간 사진 갤러리 */
+  .snap-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+  .snap-item {
+    display: block; border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--border); text-decoration: none;
+    transition: transform 0.3s ease, border-color 0.3s ease;
+  }
+  .snap-item:hover { transform: scale(1.03); border-color: var(--accent); }
+  .snap-item img { width: 100%; height: 90px; object-fit: cover; display: block; }
+  .snap-item .snap-time { font-size: 11px; color: var(--dim); text-align: center; padding: 5px 2px; }
+
   /* ============================ 로딩 스피너 ============================ */
   #loading {
     position: fixed; inset: 0; z-index: 200;
@@ -310,6 +321,7 @@
           <div class="card">
             <div class="card-label">상태 로그</div>
             <div class="log" id="log"><div class="log-empty">아직 기록이 없습니다.</div></div>
+            <button class="time-reset-btn" id="log-reset-btn">로그 초기화</button>
           </div>
         </div>
       </div>
@@ -457,6 +469,11 @@
         </table>
       </div>
 
+      <div class="card" style="margin-top:24px;">
+        <div class="card-label">졸음 순간 사진 (잠들 때 자동 촬영 · 사진을 클릭하면 저장)</div>
+        <div class="snap-gallery" id="snap-gallery"><div class="log-empty">아직 촬영된 사진이 없습니다.</div></div>
+      </div>
+
       <button class="reset-btn" id="reset-btn">기록 초기화</button>
     </section>
   </main>
@@ -498,7 +515,8 @@
   const RIGHT_EYE = [33, 160, 158, 133, 153, 144];   // 오른쪽 눈 6점
   const LEFT_EYE  = [362, 385, 387, 263, 373, 380];  // 왼쪽 눈 6점
 
-  const LS_KEY = "drowsyHelperV2";    // localStorage 저장 키
+  const LS_KEY = "drowsyHelperV2";    // localStorage 저장 키 (시간·로그)
+  const LS_SNAP_KEY = "drowsyHelperSnapsV1";  // 졸음 순간 사진 저장 키
 
   /* 모델 라벨(한글이든 영어든)을 표준 클래스로 변환 */
   function normClass(name) {
@@ -525,6 +543,7 @@
   let studySeconds = 0;
   let drowsyCount = 0;
   let history = [];                 // {time, state, durationSec, startMs}
+  let snapshots = [];               // 졸음 순간 사진 [{time, url}]
   let activeTab = "detect";
 
   /* 상태별 화면 설정 */
@@ -541,12 +560,14 @@
   const stopwatchEl = $("stopwatch"), swStateEl = $("sw-state"), logEl = $("log");
   const bannerEl = $("alert-banner"), loadingEl = $("loading");
   const recTimeEl = $("rec-time"), recCountEl = $("rec-count"), recTableEl = $("rec-table");
+  const snapGalleryEl = $("snap-gallery");
 
   /* =========================================================================
      1) 초기화 — 저장된 기록 복원 → 모델 + FaceMesh + 웹캠 준비
      ========================================================================= */
   async function init() {
     loadData();          // 이전 기록 복원(같은 날일 때만)
+    loadSnapshots();     // 졸음 순간 사진 복원
     renderAll();
 
     try {
@@ -691,6 +712,7 @@
     // 졸음 진입 시: 다른 탭이면 실시간 감지 탭으로 자동 전환 + 배너
     if (newState === CLASS_DROWSY) {
       drowsyCount++;
+      captureSnapshot();                       // 잠든 순간 얼굴 사진 저장
       if (activeTab !== "detect") switchTab("detect");
       bannerEl.classList.add("show");
     } else {
@@ -865,6 +887,53 @@
     recCountEl.textContent = drowsyCount;
     renderLog();
     renderTable();
+    renderSnapshots();
+  }
+
+  /* ---- 졸음 순간 사진 (잠들 때 자동 촬영) ---- */
+  /* 졸음이 확정된 순간 웹캠 프레임을 사진으로 저장 */
+  function captureSnapshot() {
+    if (!webcam || !webcam.canvas) return;
+    try {
+      const c = document.createElement("canvas");
+      c.width = 320; c.height = 240;
+      c.getContext("2d").drawImage(webcam.canvas, 0, 0, c.width, c.height);
+      const url = c.toDataURL("image/jpeg", 0.6);   // 용량 절약을 위해 축소+JPEG
+      const d = new Date(), p = (n) => String(n).padStart(2, "0");
+      const time = p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+      snapshots.push({ time, url });
+      if (snapshots.length > 12) snapshots.shift();   // 최근 12장만 보관
+      saveSnapshots();
+      renderSnapshots();
+    } catch (e) { console.warn("사진 저장 실패:", e); }
+  }
+
+  /* 사진 갤러리 렌더링 (사진을 클릭하면 파일로 저장됨) */
+  function renderSnapshots() {
+    if (!snapshots.length) {
+      snapGalleryEl.innerHTML = '<div class="log-empty">아직 촬영된 사진이 없습니다.</div>';
+      return;
+    }
+    snapGalleryEl.innerHTML = snapshots.slice().reverse().map((s) =>
+      '<a class="snap-item" href="' + s.url + '" download="졸음_' + s.time.replace(/:/g, "") + '.jpg">' +
+      '<img src="' + s.url + '" alt="졸음 사진">' +
+      '<div class="snap-time">' + s.time + '</div></a>'
+    ).join("");
+  }
+
+  /* 사진 저장/복원 (메인 데이터와 분리된 키, 용량 초과 시 오래된 것부터 버림) */
+  function saveSnapshots() {
+    try { localStorage.setItem(LS_SNAP_KEY, JSON.stringify({ date: todayStr(), snaps: snapshots })); }
+    catch (e) { if (snapshots.length > 1) { snapshots.shift(); saveSnapshots(); } }
+  }
+  function loadSnapshots() {
+    try {
+      const raw = localStorage.getItem(LS_SNAP_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d.date !== todayStr()) { localStorage.removeItem(LS_SNAP_KEY); return; }  // 새 날짜면 비움
+      snapshots = Array.isArray(d.snaps) ? d.snaps : [];
+    } catch (e) {}
   }
 
   /* =========================================================================
@@ -896,9 +965,18 @@
 
   /* 기록 초기화 버튼 */
   $("reset-btn").addEventListener("click", () => {
-    if (!confirm("오늘의 모든 학습 기록을 삭제할까요?")) return;
-    studySeconds = 0; drowsyCount = 0; history = [];
+    if (!confirm("오늘의 모든 학습 기록(시간·로그·사진)을 삭제할까요?")) return;
+    studySeconds = 0; drowsyCount = 0; history = []; snapshots = [];
     localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(LS_SNAP_KEY);
+    renderAll();
+  });
+
+  /* 로그 초기화 버튼 — 상태 로그·졸음 횟수·사진만 비움 (공부 시간은 유지) */
+  $("log-reset-btn").addEventListener("click", () => {
+    if (!confirm("졸음 기록(로그·횟수·사진)을 초기화할까요? 공부 시간은 유지됩니다.")) return;
+    history = []; drowsyCount = 0; snapshots = [];
+    saveData(); saveSnapshots();
     renderAll();
   });
 
