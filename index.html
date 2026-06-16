@@ -470,7 +470,7 @@
       </div>
 
       <div class="card" style="margin-top:24px;">
-        <div class="card-label">졸음 순간 사진 (잠들 때 자동 촬영 · 사진을 클릭하면 저장)</div>
+        <div class="card-label">졸음 순간 사진 (잠들 때 자동 촬영 · 클릭하면 저장 · 삭제되지 않고 영구 보관)</div>
         <div class="snap-gallery" id="snap-gallery"><div class="log-empty">아직 촬영된 사진이 없습니다.</div></div>
       </div>
 
@@ -900,9 +900,9 @@
       c.getContext("2d").drawImage(webcam.canvas, 0, 0, c.width, c.height);
       const url = c.toDataURL("image/jpeg", 0.6);   // 용량 절약을 위해 축소+JPEG
       const d = new Date(), p = (n) => String(n).padStart(2, "0");
-      const time = p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
-      snapshots.push({ time, url });
-      if (snapshots.length > 12) snapshots.shift();   // 최근 12장만 보관
+      const time = p(d.getMonth() + 1) + "/" + p(d.getDate()) + " " +
+                   p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+      snapshots.push({ time, url });   // ★ 사진은 절대 자동 삭제하지 않음 (개수 제한 없음)
       saveSnapshots();
       renderSnapshots();
     } catch (e) { console.warn("사진 저장 실패:", e); }
@@ -915,7 +915,7 @@
       return;
     }
     snapGalleryEl.innerHTML = snapshots.slice().reverse().map((s) =>
-      '<a class="snap-item" href="' + s.url + '" download="졸음_' + s.time.replace(/:/g, "") + '.jpg">' +
+      '<a class="snap-item" href="' + s.url + '" download="졸음_' + s.time.replace(/[^0-9]/g, "") + '.jpg">' +
       '<img src="' + s.url + '" alt="졸음 사진">' +
       '<div class="snap-time">' + s.time + '</div></a>'
     ).join("");
@@ -923,16 +923,16 @@
 
   /* 사진 저장/복원 (메인 데이터와 분리된 키, 용량 초과 시 오래된 것부터 버림) */
   function saveSnapshots() {
-    try { localStorage.setItem(LS_SNAP_KEY, JSON.stringify({ date: todayStr(), snaps: snapshots })); }
-    catch (e) { if (snapshots.length > 1) { snapshots.shift(); saveSnapshots(); } }
+    // ★ 사진은 절대 삭제하지 않으므로, 저장 실패(용량 초과) 시에도 기존 사진을 버리지 않음
+    try { localStorage.setItem(LS_SNAP_KEY, JSON.stringify({ snaps: snapshots })); }
+    catch (e) { console.warn("사진 저장 공간이 가득 찼습니다(기존 사진은 그대로 유지).", e); }
   }
   function loadSnapshots() {
     try {
       const raw = localStorage.getItem(LS_SNAP_KEY);
       if (!raw) return;
       const d = JSON.parse(raw);
-      if (d.date !== todayStr()) { localStorage.removeItem(LS_SNAP_KEY); return; }  // 새 날짜면 비움
-      snapshots = Array.isArray(d.snaps) ? d.snaps : [];
+      snapshots = Array.isArray(d.snaps) ? d.snaps : [];   // ★ 날짜가 바뀌어도 사진은 계속 보관
     } catch (e) {}
   }
 
@@ -965,18 +965,17 @@
 
   /* 기록 초기화 버튼 */
   $("reset-btn").addEventListener("click", () => {
-    if (!confirm("오늘의 모든 학습 기록(시간·로그·사진)을 삭제할까요?")) return;
-    studySeconds = 0; drowsyCount = 0; history = []; snapshots = [];
+    if (!confirm("학습 기록(시간·로그·횟수)을 삭제할까요? (촬영된 사진은 삭제되지 않습니다)")) return;
+    studySeconds = 0; drowsyCount = 0; history = [];   // ★ 사진(snapshots)은 건드리지 않음
     localStorage.removeItem(LS_KEY);
-    localStorage.removeItem(LS_SNAP_KEY);
     renderAll();
   });
 
-  /* 로그 초기화 버튼 — 상태 로그·졸음 횟수·사진만 비움 (공부 시간은 유지) */
+  /* 로그 초기화 버튼 — 상태 로그·졸음 횟수만 비움 (공부 시간과 사진은 유지) */
   $("log-reset-btn").addEventListener("click", () => {
-    if (!confirm("졸음 기록(로그·횟수·사진)을 초기화할까요? 공부 시간은 유지됩니다.")) return;
-    history = []; drowsyCount = 0; snapshots = [];
-    saveData(); saveSnapshots();
+    if (!confirm("졸음 로그·횟수를 초기화할까요? (공부 시간과 사진은 유지됩니다)")) return;
+    history = []; drowsyCount = 0;   // ★ 사진(snapshots)은 건드리지 않음
+    saveData();
     renderAll();
   });
 
