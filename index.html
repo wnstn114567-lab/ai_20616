@@ -222,6 +222,15 @@
   }
   .reset-btn:hover { transform: scale(1.02); border-color: #ff453a; color: #ff453a; }
 
+  /* 시간 초기화 버튼 (스톱워치 카드 안, 작고 가운데 정렬) */
+  .time-reset-btn {
+    display: block; margin: 16px auto 0; background: none; cursor: pointer;
+    border: 1px solid var(--border); color: var(--dim);
+    padding: 8px 16px; border-radius: 10px; font-size: 13px; font-family: inherit;
+    transition: transform 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  }
+  .time-reset-btn:hover { transform: scale(1.02); border-color: var(--accent); color: var(--accent); }
+
   /* ============================ 로딩 스피너 ============================ */
   #loading {
     position: fixed; inset: 0; z-index: 200;
@@ -296,6 +305,7 @@
             <div class="card-label">공부 시간 (집중할 때만 증가)</div>
             <div class="stopwatch" id="stopwatch">00:00:00</div>
             <div class="sw-state" id="sw-state">⏸ 대기 중</div>
+            <button class="time-reset-btn" id="time-reset-btn">시간 초기화</button>
           </div>
           <div class="card">
             <div class="card-label">상태 로그</div>
@@ -890,6 +900,15 @@
     studySeconds = 0; drowsyCount = 0; history = [];
     localStorage.removeItem(LS_KEY);
     renderAll();
+  });
+
+  /* 시간 초기화 버튼 — 공부 시간(스톱워치)만 0으로 (졸음 횟수·로그는 유지) */
+  $("time-reset-btn").addEventListener("click", () => {
+    if (!confirm("공부 시간을 0으로 초기화할까요?")) return;
+    studySeconds = 0;
+    stopwatchEl.textContent = formatTime(0);
+    recTimeEl.textContent = formatTime(0);
+    saveData();
   });
 
   /* =========================================================================
