@@ -9,7 +9,7 @@
   ============================================================================
    졸음 방지 도우미 (Drowsiness Prevention Helper)
   ============================================================================
-   · 디자인  : 애플 스타일 미니멀 다크모드 / 카드형 UI / 포인트 컬러 1개(초록)
+   · 디자인  : 애플 iOS 26 Liquid Glass — 유리 재질(블러+빛 굴절) 카드/필 내비
    · 감지방식: 두 AI를 "센서 융합(sensor fusion)"으로 결합한 하이브리드
        1) MediaPipe FaceMesh : 얼굴 468점으로 얼굴 유무 + 눈 감김(EAR) 정밀 측정
        2) Teachable Machine  : 전체적인 졸린 모습/자세 판단 (고개 숙임 등)
@@ -19,103 +19,165 @@
 -->
 
 <style>
-  /* ============================ 색상 토큰 ============================ */
+  /* ==================================================================
+     iOS 26 Liquid Glass 테마
+     — 모든 표면을 '유리'로: backdrop blur + 위쪽 빛 굴절 하이라이트 +
+       아래쪽 어두운 모서리 + 부드러운 그림자. 딱딱한 테두리 없음.
+     ================================================================== */
   :root {
-    --bg:        #1a1a1a;   /* 전체 배경 */
-    --card:      #2a2a2a;   /* 카드 배경 */
-    --card-2:    #242424;   /* 살짝 어두운 카드 */
-    --text:      #f5f5f7;   /* 기본 텍스트(흰색에 가까운) */
-    --dim:       #86868b;   /* 보조 텍스트(애플 그레이) */
-    --accent:    #34C759;   /* 포인트 컬러 — 초록 (딱 하나만) */
-    --warn:      #FFD60A;   /* 졸음 경고 — 노랑 (이때만 사용) */
-    --border:    #3a3a3c;   /* 기본 테두리 */
-    --blue:      #0A84FF;   /* 파란 포인트 */
-    --nav-bg:    rgba(10, 90, 200, 0.85); /* 메뉴바 배경 — 또렷한 파랑(반투명) */
-    --radius:    16px;
+    --bg:      #f7f8f8;                    /* 흰색에 가까운 배경 */
+    --text:    #1d1d1f;                    /* 진한 텍스트 */
+    --dim:     rgba(60, 60, 67, 0.60);     /* iOS 보조 라벨(라이트) */
+    --accent:  #22A94F;                    /* 포인트 — 초록 (조금씩만) */
+    --warn:    #E8A200;                    /* 졸음 — 앰버(흰 배경에서 읽히게) */
+    --tint:    #15803D;                    /* 활성 탭 텍스트 — 진한 초록 */
+    --border:  rgba(0, 0, 0, 0.12);        /* 유리 테두리(상태 기본색) */
+    --card:    rgba(255, 255, 255, 0.72);  /* 유리 카드 */
+    --radius:  24px;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI",
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
                  "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-    font-weight: 300;                /* 기본은 얇게 */
+    font-weight: 300;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
-    padding-top: 56px;               /* 고정 네비 높이만큼 비워둠 */
+    padding-top: 96px;                     /* 떠 있는 필 내비 자리 */
     -webkit-font-smoothing: antialiased;
   }
 
-  /* ============================ 상단 네비게이션 ============================ */
+  /* 흰 배경 + 아주 옅은 초록 포인트 (유리의 반투명함이 살짝 드러나는 정도만) */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: -1;
+    background:
+      radial-gradient(900px 600px at 10% 0%,  rgba(52, 199, 89, 0.08), transparent 60%),
+      radial-gradient(800px 550px at 95% 15%, rgba(52, 199, 89, 0.05), transparent 60%),
+      radial-gradient(900px 650px at 50% 110%, rgba(52, 199, 89, 0.06), transparent 62%),
+      #f7f8f8;
+  }
+
+  /* ============ 떠 있는 필(pill) 내비게이션 — 프로스트 유리(라이트) ============ */
   nav {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 56px;
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
     z-index: 100;
-    background: var(--nav-bg);                            /* 짙은 네이비(반투명) */
-    backdrop-filter: saturate(180%) blur(20px);          /* 배경 블러(반투명) */
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    border-bottom: 1px solid rgba(120, 170, 255, 0.18);  /* 옅은 파랑 경계선 */
+    display: flex; align-items: center; gap: 2px;
+    padding: 6px;
+    max-width: min(94vw, 760px);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.60);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.90),   /* 위쪽 빛 굴절 */
+      inset 0 -1px 0 rgba(0, 0, 0, 0.06),        /* 아래쪽 어두운 모서리 */
+      0 8px 32px rgba(0, 0, 0, 0.10);            /* 떠 있는 그림자 */
   }
-  .nav-inner {
-    max-width: 1120px; height: 100%;
-    margin: 0 auto; padding: 0 24px;
-    display: flex; align-items: center; gap: 28px;
+  nav::before {                                   /* 렌즈 곡률(스펙큘러) 오버레이 */
+    content: ""; position: absolute; inset: 0; z-index: 0;
+    border-radius: inherit; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.05) 48%, transparent);
   }
-  .brand { font-size: 16px; font-weight: 500; white-space: nowrap; }
+  nav > * { position: relative; z-index: 1; }
 
-  .tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }            /* 모바일 가로 스크롤 */
+  .tabs {
+    position: relative; min-width: 0;
+    display: flex; align-items: center; gap: 2px;
+    overflow-x: auto; scrollbar-width: none;
+    border-radius: 999px;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+
+  /* 활성 탭 뒤에서 액체처럼 미끄러지는 유리 알약 */
+  .tab-pill {
+    position: absolute; top: 50%; left: 0; width: 0; height: 38px;
+    transform: translateY(-50%);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);        /* 살짝 더 밝은 유리 */
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 1),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.05),
+      0 2px 10px rgba(0, 0, 0, 0.12);
+    transition: left 0.55s cubic-bezier(0.30, 1.45, 0.40, 1),   /* 스프링 이징 */
+                width 0.55s cubic-bezier(0.30, 1.45, 0.40, 1),
+                transform 0.3s ease;
+    z-index: 0;
+  }
+  .tab-pill.stretch { transform: translateY(-50%) scaleX(1.10) scaleY(0.96); } /* 이동 중 늘어남 */
+
   .tab-btn {
-    position: relative;
+    position: relative; z-index: 1;
     background: none; border: none; cursor: pointer;
-    color: rgba(255, 255, 255, 0.72); font-size: 14px; font-weight: 300;
-    padding: 18px 10px; white-space: nowrap;
-    font-family: inherit; transition: color 0.3s ease;
+    color: rgba(0, 0, 0, 0.70);
+    font-family: inherit; font-size: 15px; font-weight: 500;
+    padding: 10px 16px; border-radius: 999px; white-space: nowrap;
+    transition: color 0.3s ease, background 0.25s ease, transform 0.15s ease;
   }
-  .tab-btn:hover { color: var(--text); }
-  .tab-btn.active { color: var(--text); font-weight: 500; }
-  .tab-btn.active::after {                                /* 활성 탭 하단 흰색 언더라인(파란 바 위에서 또렷) */
-    content: ""; position: absolute; left: 8px; right: 8px; bottom: 0;
-    height: 2px; background: #ffffff; border-radius: 2px;
-  }
+  .tab-btn:hover:not(.active) { background: rgba(0, 0, 0, 0.05); }
+  .tab-btn:active { transform: scale(0.97); }
+  .tab-btn.active { color: var(--tint); font-weight: 600; }
 
-  /* ============================ 졸음 경고 배너 (슬라이드다운) ============================ */
+  /* ============ 졸음 경고 배너 — 노란 유리 필 (메뉴바 아래로 내려옴) ============ */
   #alert-banner {
-    position: fixed; top: 56px; left: 0; right: 0; z-index: 90;
-    background: var(--warn); color: #1a1a1a;
-    text-align: center; font-weight: 500; font-size: 15px;
-    padding: 14px 16px;
-    transform: translateY(-130%);                        /* 평소엔 위로 숨김 */
-    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    position: fixed; top: 80px; left: 50%; z-index: 90;
+    /* 평소엔 화면 위로 '완전히' 숨김 (배너 높이 + 여유 120px만큼 올려둠) */
+    transform: translate(-50%, calc(-100% - 120px));
+    opacity: 0;
+    max-width: 92vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    padding: 13px 26px; border-radius: 999px;
+    background: rgba(255, 214, 10, 0.35);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    color: #6b5300; font-weight: 600; font-size: 15px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.60), 0 8px 32px rgba(0,0,0,0.15);
+    transition: transform 0.5s cubic-bezier(0.30, 1.30, 0.40, 1), opacity 0.3s ease;
   }
-  #alert-banner.show { transform: translateY(0); }       /* 졸음 시 내려옴 */
+  #alert-banner.show { transform: translate(-50%, 0); opacity: 1; }
 
-  /* ============================ 공통 레이아웃 ============================ */
-  main { max-width: 1120px; margin: 0 auto; padding: 36px 24px 64px; }
+  /* ============ 공통 레이아웃 ============ */
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 24px 64px; }
 
   .tab-panel { display: none; }
-  .tab-panel.active { display: block; animation: fadeIn 0.3s ease; }
-  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .tab-panel.active { display: block; animation: fadeUp 0.35s ease; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
-  .panel-title { font-size: 26px; font-weight: 500; margin-bottom: 6px; }
+  .panel-title { font-size: 26px; font-weight: 600; margin-bottom: 6px; }
   .panel-sub   { color: var(--dim); font-size: 15px; margin-bottom: 28px; }
 
+  /* ============ 유리 카드 ============ */
   .card {
+    position: relative;
     background: var(--card);
-    border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 24px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);            /* 은은한 그림자 */
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.90),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.04),
+      0 8px 28px rgba(20, 40, 25, 0.08);
   }
+  .card::before {                                  /* 스펙큘러 곡률 */
+    content: ""; position: absolute; inset: 0; z-index: 0;
+    border-radius: inherit; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,0.50), transparent 40%);
+  }
+  .card > * { position: relative; z-index: 1; }
   .card-label { color: var(--dim); font-size: 13px; font-weight: 400; margin-bottom: 14px; }
 
-  /* 교육용 카드만 hover 시 미세하게 확대 */
-  .hoverable { transition: transform 0.3s ease, border-color 0.3s ease; }
-  .hoverable:hover { transform: scale(1.02); border-color: #4a4a4c; }
+  .hoverable { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+  .hoverable:hover {
+    transform: scale(1.02);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.04),
+      0 14px 40px rgba(20, 40, 25, 0.14);
+  }
 
-  /* ============================ 탭1: 실시간 감지 ============================ */
+  /* ============ 탭1: 실시간 감지 ============ */
   .detect-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
@@ -123,16 +185,16 @@
   }
   .detect-right { display: flex; flex-direction: column; gap: 24px; }
 
-  /* 웹캠 카드 — 테두리 색으로 상태 표현 */
-  .cam-card { border-width: 2px; transition: border-color 0.5s ease; }
+  /* 웹캠 카드 — 테두리 색으로 상태 표현 (JS가 borderColor를 바꿈) */
+  .cam-card { border: 2px solid var(--border); transition: border-color 0.5s ease; }
 
   .cam-stage {
-    position: relative;                 /* 메시 오버레이를 겹치기 위한 기준 */
+    position: relative;
     width: 100%; max-width: 640px; margin: 0 auto;
-    aspect-ratio: 4 / 3;                /* 640x480 비율 유지 */
-    border-radius: 12px; overflow: hidden; background: #000;
+    aspect-ratio: 4 / 3;
+    border-radius: 16px; overflow: hidden; background: rgba(0, 0, 0, 0.55);
   }
-  .cam-stage canvas {                   /* 웹캠 캔버스가 꽉 채움 */
+  .cam-stage canvas {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
   }
 
@@ -140,18 +202,19 @@
     display: flex; align-items: baseline; gap: 10px;
     margin-top: 16px; padding: 0 4px;
   }
-  #status-text { font-size: 20px; font-weight: 500; }
+  #status-text { font-size: 20px; font-weight: 600; }
   #status-prob { color: var(--dim); font-size: 14px; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 0 4px; }
   .chip {
-    font-size: 12.5px; font-weight: 400;
-    padding: 6px 12px; border-radius: 20px;
-    background: var(--card-2); border: 1px solid var(--border); color: var(--dim);
+    font-size: 12.5px; font-weight: 500;
+    padding: 7px 14px; border-radius: 999px;
+    background: rgba(0, 0, 0, 0.05); color: var(--dim);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.60);
     white-space: nowrap;
   }
-  .chip.on   { border-color: var(--accent); color: var(--accent); }
-  .chip.warn { border-color: var(--warn);   color: var(--warn); }
+  .chip.on   { background: rgba(52, 199, 89, 0.15);  color: #15803D; }
+  .chip.warn { background: rgba(255, 204, 0, 0.22);  color: #8a6d00; }
 
   /* 스톱워치 */
   .stopwatch {
@@ -162,41 +225,42 @@
 
   /* 로그 */
   .log { max-height: 240px; overflow-y: auto; font-size: 14px; }
-  .log-line { padding: 9px 4px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; }
+  .log-line { padding: 9px 4px; border-bottom: 1px solid rgba(0,0,0,0.08); display: flex; gap: 10px; }
   .log-line:last-child { border-bottom: none; }
   .log-time { color: var(--dim); font-variant-numeric: tabular-nums; }
   .log-empty { color: var(--dim); font-size: 13px; padding: 8px 4px; }
 
-  /* ============================ 탭2: 수면의 중요성 (2x2) ============================ */
+  /* ============ 탭2: 수면의 중요성 (2x2) ============ */
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .info-card .ic { font-size: 34px; display: block; margin-bottom: 14px; }
-  .info-card h3 { font-size: 19px; font-weight: 500; margin-bottom: 10px; }
-  .info-card p  { color: #c7c7cc; font-size: 14.5px; line-height: 1.7; font-weight: 300; }
+  .info-card h3 { font-size: 19px; font-weight: 600; margin-bottom: 10px; }
+  .info-card p  { color: rgba(60, 60, 67, 0.78); font-size: 14.5px; line-height: 1.7; font-weight: 300; }
   .source { color: var(--dim); font-size: 12.5px; margin-top: 22px; text-align: center; }
 
-  /* ============================ 탭3: 올바른 수면 습관 (번호 리스트) ============================ */
+  /* ============ 탭3: 올바른 수면 습관 (번호 리스트) ============ */
   .habit-list { display: flex; flex-direction: column; gap: 16px; }
   .habit { display: flex; gap: 18px; align-items: flex-start; }
   .habit .num {
     flex: none; width: 38px; height: 38px; border-radius: 50%;
-    background: var(--card-2); border: 1px solid var(--accent); color: var(--accent);
+    background: rgba(52, 199, 89, 0.15); color: #15803D;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.70);
     display: flex; align-items: center; justify-content: center;
-    font-size: 16px; font-weight: 500;
+    font-size: 16px; font-weight: 600;
   }
-  .habit h3 { font-size: 17px; font-weight: 500; margin-bottom: 6px; }
-  .habit p  { color: #c7c7cc; font-size: 14.5px; line-height: 1.7; font-weight: 300; }
+  .habit h3 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  .habit p  { color: rgba(60, 60, 67, 0.78); font-size: 14.5px; line-height: 1.7; font-weight: 300; }
 
-  /* ============================ 탭4: 스트레칭 (유튜브) ============================ */
+  /* ============ 탭4: 스트레칭 (유튜브) ============ */
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-  .stretch-card h3 { font-size: 17px; font-weight: 500; margin-bottom: 14px; }
+  .stretch-card h3 { font-size: 17px; font-weight: 600; margin-bottom: 14px; }
   .video-wrap {
-    position: relative; width: 100%; padding-top: 56.25%;   /* 16:9 비율 */
-    border-radius: 12px; overflow: hidden; background: #000;
+    position: relative; width: 100%; padding-top: 56.25%;
+    border-radius: 16px; overflow: hidden; background: rgba(0, 0, 0, 0.5);
   }
   .video-wrap iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
   .stretch-card p { color: var(--dim); font-size: 13.5px; margin-top: 14px; line-height: 1.6; }
 
-  /* ============================ 탭5: 학습 기록 ============================ */
+  /* ============ 탭5: 학습 기록 ============ */
   .stat-grid { margin-bottom: 24px; }
   .stat { text-align: center; }
   .big-num { font-size: 48px; font-weight: 200; font-variant-numeric: tabular-nums; margin-top: 6px; }
@@ -204,83 +268,93 @@
 
   .log-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .log-table th {
-    text-align: left; color: var(--dim); font-weight: 400; font-size: 13px;
-    padding: 10px 8px; border-bottom: 1px solid var(--border);
+    text-align: left; color: var(--dim); font-weight: 500; font-size: 13px;
+    padding: 10px 8px; border-bottom: 1px solid rgba(0,0,0,0.10);
   }
-  .log-table td { padding: 11px 8px; border-bottom: 1px solid var(--border); font-weight: 300; }
+  .log-table td { padding: 11px 8px; border-bottom: 1px solid rgba(0,0,0,0.08); font-weight: 300; }
   .log-table tr:last-child td { border-bottom: none; }
-  .badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 400; }
-  .badge.awake  { background: rgba(52,199,89,0.15);  color: var(--accent); }
-  .badge.drowsy { background: rgba(255,214,10,0.15);  color: var(--warn); }
-  .badge.none   { background: rgba(255,255,255,0.08); color: var(--dim); }
-
-  .reset-btn {
-    margin-top: 24px; background: none; cursor: pointer;
-    border: 1px solid var(--border); color: var(--dim);
-    padding: 11px 20px; border-radius: 12px; font-size: 14px; font-family: inherit;
-    transition: transform 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  .badge {
+    padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 500;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.60);
   }
-  .reset-btn:hover { transform: scale(1.02); border-color: #ff453a; color: #ff453a; }
+  .badge.awake  { background: rgba(52, 199, 89, 0.15);  color: #15803D; }
+  .badge.drowsy { background: rgba(255, 204, 0, 0.22);  color: #8a6d00; }
+  .badge.none   { background: rgba(0, 0, 0, 0.06);      color: var(--dim); }
 
-  /* 시간 초기화 버튼 (스톱워치 카드 안, 작고 가운데 정렬) */
-  .time-reset-btn {
-    display: block; margin: 16px auto 0; background: none; cursor: pointer;
-    border: 1px solid var(--border); color: var(--dim);
-    padding: 8px 16px; border-radius: 10px; font-size: 13px; font-family: inherit;
-    transition: transform 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  /* ============ 유리 버튼 ============ */
+  .reset-btn, .time-reset-btn {
+    display: block; cursor: pointer; border: none;
+    background: rgba(0, 0, 0, 0.05); color: rgba(0, 0, 0, 0.65);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.70), 0 3px 12px rgba(0, 0, 0, 0.08);
+    border-radius: 999px; font-family: inherit;
+    transition: background 0.25s ease, color 0.25s ease, transform 0.15s ease;
   }
-  .time-reset-btn:hover { transform: scale(1.02); border-color: var(--accent); color: var(--accent); }
+  .time-reset-btn { margin: 16px auto 0; padding: 9px 18px; font-size: 13px; }
+  .reset-btn { margin-top: 24px; padding: 12px 22px; font-size: 14px; }
+  .time-reset-btn:hover { background: rgba(52, 199, 89, 0.15); color: #15803D; }
+  .reset-btn:hover { background: rgba(255, 69, 58, 0.12); color: #d0342a; }
+  .reset-btn:active, .time-reset-btn:active { transform: scale(0.97); }
 
   /* 졸음 순간 사진 갤러리 */
   .snap-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
   .snap-item {
-    display: block; border-radius: 10px; overflow: hidden;
-    border: 1px solid var(--border); text-decoration: none;
-    transition: transform 0.3s ease, border-color 0.3s ease;
+    display: block; border-radius: 14px; overflow: hidden; text-decoration: none;
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.90), 0 4px 14px rgba(0, 0, 0, 0.10);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
   }
-  .snap-item:hover { transform: scale(1.03); border-color: var(--accent); }
+  .snap-item:hover {
+    transform: scale(1.03);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 8px 24px rgba(0, 0, 0, 0.16);
+  }
   .snap-item img { width: 100%; height: 90px; object-fit: cover; display: block; }
   .snap-item .snap-time { font-size: 11px; color: var(--dim); text-align: center; padding: 5px 2px; }
 
-  /* ============================ 로딩 스피너 ============================ */
+  /* ============ 로딩 — 유리 오버레이 ============ */
   #loading {
     position: fixed; inset: 0; z-index: 200;
-    background: var(--bg);
+    background: rgba(247, 248, 248, 0.75);
+    backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
     transition: opacity 0.5s ease;
   }
   #loading.hide { opacity: 0; pointer-events: none; }
   .spinner {
     width: 38px; height: 38px; border-radius: 50%;
-    border: 3px solid var(--border); border-top-color: var(--accent);
+    border: 3px solid rgba(0, 0, 0, 0.10); border-top-color: var(--accent);
     animation: spin 0.9s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { color: var(--dim); font-size: 15px; }
 
-  /* ============================ 반응형 (모바일 768px 이하) ============================ */
+  /* ============ 반응형 (모바일 768px 이하) ============ */
   @media (max-width: 768px) {
-    .detect-grid { grid-template-columns: 1fr; }   /* 좌우 2단 → 1단 */
-    .grid-2, .grid-3 { grid-template-columns: 1fr; }
-    .nav-inner { gap: 16px; padding: 0 16px; }
-    main { padding: 24px 16px 48px; }
+    body { padding-top: 88px; }
+    nav { top: 10px; padding: 5px; }
+    .tab-btn { padding: 9px 12px; font-size: 14px; }
+    .detect-grid, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    main { padding: 20px 16px 48px; }
     .stopwatch { font-size: 46px; }
+  }
+
+  /* 모션 최소화 설정 사용자 배려 */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
   }
 </style>
 </head>
 
 <body>
-  <!-- ===================== 상단 네비게이션 ===================== -->
+  <!-- ============ 떠 있는 필 내비게이션 (Liquid Glass) ============ -->
   <nav>
-    <div class="nav-inner">
-      <div class="brand">🌙 졸음 방지 도우미</div>
-      <div class="tabs" id="tabs">
-        <button class="tab-btn active" data-tab="detect">실시간 감지</button>
-        <button class="tab-btn" data-tab="why">수면의 중요성</button>
-        <button class="tab-btn" data-tab="habit">올바른 수면 습관</button>
-        <button class="tab-btn" data-tab="stretch">스트레칭</button>
-        <button class="tab-btn" data-tab="record">학습 기록</button>
-      </div>
+    <div class="tabs" id="tabs">
+      <!-- 활성 탭 뒤에서 미끄러지는 유리 알약 (JS가 위치·너비를 계산) -->
+      <div class="tab-pill" id="tab-pill"></div>
+      <button class="tab-btn active" data-tab="detect">실시간 감지</button>
+      <button class="tab-btn" data-tab="why">수면의 중요성</button>
+      <button class="tab-btn" data-tab="habit">올바른 수면 습관</button>
+      <button class="tab-btn" data-tab="stretch">스트레칭</button>
+      <button class="tab-btn" data-tab="record">학습 기록</button>
     </div>
   </nav>
 
@@ -997,11 +1071,31 @@
       b.classList.toggle("active", b.dataset.tab === name));
     document.querySelectorAll(".tab-panel").forEach((p) =>
       p.classList.toggle("active", p.id === "panel-" + name));
+    movePill();   // 유리 알약을 새 탭 위치로 이동
   }
   $("tabs").addEventListener("click", (e) => {
     const btn = e.target.closest(".tab-btn");
     if (btn) switchTab(btn.dataset.tab);
   });
+
+  /* 활성 탭 뒤의 유리 알약을 스프링 이징으로 이동 (이동 중 살짝 늘어남) */
+  const tabPill = $("tab-pill");
+  function movePill(animate = true) {
+    const act = document.querySelector(".tab-btn.active");
+    if (!tabPill || !act) return;
+    if (!animate) tabPill.style.transition = "none";     // 첫 배치/리사이즈 땐 즉시
+    tabPill.style.left = act.offsetLeft + "px";
+    tabPill.style.width = act.offsetWidth + "px";
+    if (!animate) {
+      void tabPill.offsetWidth;                          // 리플로우 후 트랜지션 복원
+      tabPill.style.transition = "";
+    } else {
+      tabPill.classList.add("stretch");                  // 액체처럼 살짝 늘어났다가
+      setTimeout(() => tabPill.classList.remove("stretch"), 320);  // 다시 원래대로
+    }
+  }
+  window.addEventListener("load", () => movePill(false));
+  window.addEventListener("resize", () => movePill(false));
 
   /* =========================================================================
      10) 시작 + 음성 잠금 해제(첫 클릭/키 입력 시)
