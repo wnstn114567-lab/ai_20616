@@ -584,6 +584,7 @@
   const HOLD_FAST_MS    = 1500;   // 눈+AI 둘 다 졸음일 때: 빠른 경고까지 지속시간
   const HOLD_NORMAL_MS  = 3000;   // 한쪽 근거만일 때: 신중한 경고까지 지속시간(=3초)
   const TTS_COOLDOWN_MS = 10000;  // 음성 경고 사이 최소 간격(반복 방지, 10초)
+  const RECOVER_MS      = 2000;   // 졸음→집중 복귀에 필요한 '깨어있음 유지' 시간(상태 왕복 방지)
 
   /* FaceMesh에서 눈 테두리에 해당하는 점들의 번호 (EAR 계산용) */
   const RIGHT_EYE = [33, 160, 158, 133, 153, 144];   // 오른쪽 눈 6점
@@ -611,6 +612,7 @@
   // 상태/타이머
   let displayState = CLASS_NONE;
   let drowsyStartTime = null, lastWarningTime = -Infinity, drowsyReason = "";
+  let awakeHoldStart = null;        // 졸음에서 '깨어남'이 유지되기 시작한 시각(복귀 판정용)
   let audioUnlocked = false, audioCtx = null;
 
   // 기록(학습 기록 탭 + localStorage)
@@ -762,6 +764,7 @@
 
     // (D) 지속시간을 채우면 확정 (짧은 깜빡임 무시)
     if (candidate) {
+      awakeHoldStart = null;                       // 졸음 근거가 다시 나타나면 복귀 카운트 취소
       if (drowsyStartTime === null) drowsyStartTime = now;
       if (now - drowsyStartTime >= holdNeeded) {
         drowsyReason = reason;
@@ -772,7 +775,18 @@
       }
     } else {
       drowsyStartTime = null;
-      commitState(CLASS_AWAKE);
+      // ★ 히스테리시스: 졸음 상태에서는 '깨어있음 근거'가 RECOVER_MS(2초) 이상
+      //   연속으로 유지될 때만 집중 중으로 복귀 → 눈 크기가 기준 근처에서
+      //   흔들릴 때 졸음↔집중이 다다닥 왕복하며 로그가 도배되는 것을 방지
+      if (displayState === CLASS_DROWSY) {
+        if (awakeHoldStart === null) awakeHoldStart = now;
+        if (now - awakeHoldStart >= RECOVER_MS) {
+          awakeHoldStart = null;
+          commitState(CLASS_AWAKE);
+        }
+      } else {
+        commitState(CLASS_AWAKE);
+      }
     }
   }
 
@@ -919,6 +933,9 @@
     const now = Date.now();
     if (history.length) {
       const last = history[history.length - 1];
+      // ★ 같은 상태가 연속으로 오면 새 줄을 만들지 않고 기존 기록을 이어감
+      //   (예: 집중 중 → 자리비움 → 집중 중이면 '집중 중'이 두 번 찍히던 문제 해결)
+      if (last.state === state) return;
       if (last.durationSec === null) last.durationSec = Math.max(0, Math.round((now - last.startMs) / 1000));
     }
     const d = new Date(now), p = (n) => String(n).padStart(2, "0");
