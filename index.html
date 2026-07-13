@@ -181,9 +181,14 @@
   .detect-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-    gap: 24px; align-items: start;
+    gap: 24px; align-items: stretch;   /* 좌우 컬럼 높이를 같게 → 바닥이 맞음 */
   }
   .detect-right { display: flex; flex-direction: column; gap: 24px; }
+
+  /* 상태 로그 카드가 남는 세로 공간을 채워 웹캠 카드와 바닥을 맞춤 */
+  .log-card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .log-card .card-label { flex: none; }
+  .log-card .time-reset-btn { flex: none; }
 
   /* 웹캠 카드 — 테두리 색으로 상태 표현 (JS가 borderColor를 바꿈) */
   .cam-card { border: 2px solid var(--border); transition: border-color 0.5s ease; }
@@ -203,7 +208,6 @@
     margin-top: 16px; padding: 0 4px;
   }
   #status-text { font-size: 20px; font-weight: 600; }
-  #status-prob { color: var(--dim); font-size: 14px; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 0 4px; }
   .chip {
@@ -223,8 +227,8 @@
   }
   .sw-state { text-align: center; color: var(--dim); font-size: 13px; }
 
-  /* 로그 */
-  .log { max-height: 240px; overflow-y: auto; font-size: 14px; }
+  /* 로그 — 카드 안에서 남는 높이를 채우고, 넘치면 스크롤 */
+  .log { flex: 1 1 0; min-height: 160px; overflow-y: auto; font-size: 14px; }
   .log-line { padding: 9px 4px; border-bottom: 1px solid rgba(0,0,0,0.08); display: flex; gap: 10px; }
   .log-line:last-child { border-bottom: none; }
   .log-time { color: var(--dim); font-variant-numeric: tabular-nums; }
@@ -333,9 +337,26 @@
     nav { top: 10px; padding: 5px; }
     .tab-btn { padding: 9px 12px; font-size: 14px; }
     .detect-grid, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .log-card { flex: none; }                       /* 1단 배치에선 원래 높이로 */
+    .log { flex: none; max-height: 240px; }
     main { padding: 20px 16px 48px; }
     .stopwatch { font-size: 46px; }
   }
+
+  /* ============ 소리 켜기/끄기 플로팅 버튼 ============ */
+  .sound-btn {
+    position: fixed; right: 18px; bottom: 18px; z-index: 100;
+    width: 48px; height: 48px; border-radius: 999px; border: none; cursor: pointer;
+    font-size: 20px; display: grid; place-items: center;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.90), 0 8px 24px rgba(0, 0, 0, 0.12);
+    transition: transform 0.15s ease, background 0.25s ease;
+  }
+  .sound-btn:hover { background: rgba(255, 255, 255, 0.90); }
+  .sound-btn:active { transform: scale(0.94); }
+  .sound-btn.off { background: rgba(0, 0, 0, 0.08); }   /* 꺼짐 상태는 회색 */
 
   /* 모션 최소화 설정 사용자 배려 */
   @media (prefers-reduced-motion: reduce) {
@@ -361,11 +382,13 @@
   <!-- ===================== 졸음 경고 배너 ===================== -->
   <div id="alert-banner">😴 졸음이 감지되었습니다 — 일어나서 스트레칭을 해보세요</div>
 
+  <!-- 소리(사이렌+음성) 켜기/끄기 플로팅 버튼 -->
+  <button class="sound-btn" id="sound-btn" aria-label="소리 켜기/끄기">🔊</button>
+
   <main>
     <!-- ===================== 탭1: 실시간 감지 ===================== -->
     <section class="tab-panel active" id="panel-detect">
       <h2 class="panel-title">실시간 감지</h2>
-      <p class="panel-sub">FaceMesh(눈)와 Teachable Machine(자세) 두 AI가 함께 졸음을 감지합니다.</p>
 
       <div class="detect-grid">
         <!-- 왼쪽: 웹캠 + 메시 -->
@@ -375,7 +398,6 @@
           </div>
           <div class="cam-status">
             <span id="status-text">대기 중</span>
-            <span id="status-prob"></span>
           </div>
           <div class="chips">
             <span class="chip" id="chip-face">얼굴 —</span>
@@ -387,12 +409,12 @@
         <!-- 오른쪽: 스톱워치 + 로그 -->
         <div class="detect-right">
           <div class="card">
-            <div class="card-label">공부 시간 (집중할 때만 증가)</div>
+            <div class="card-label">공부 시간</div>
             <div class="stopwatch" id="stopwatch">00:00:00</div>
             <div class="sw-state" id="sw-state">⏸ 대기 중</div>
             <button class="time-reset-btn" id="time-reset-btn">시간 초기화</button>
           </div>
-          <div class="card">
+          <div class="card log-card">
             <div class="card-label">상태 로그</div>
             <div class="log" id="log"><div class="log-empty">아직 기록이 없습니다.</div></div>
             <button class="time-reset-btn" id="log-reset-btn">로그 초기화</button>
@@ -504,9 +526,9 @@
           <p>자리에서 일어나지 않고도 할 수 있는 간단한 전신 스트레칭</p>
         </div>
         <div class="card stretch-card hoverable">
-          <h3>졸음 깨는 2분 스트레칭</h3>
+          <h3>졸음 깨는 스트레칭</h3>
           <div class="video-wrap">
-            <iframe src="https://www.youtube.com/embed/2L2kYOHEiU0" title="졸음 깨는 스트레칭"
+            <iframe src="https://www.youtube.com/embed/513TiiT-Nqg" title="졸음 깨는 스트레칭"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowfullscreen></iframe>
           </div>
@@ -518,7 +540,7 @@
     <!-- ===================== 탭5: 학습 기록 ===================== -->
     <section class="tab-panel" id="panel-record">
       <h2 class="panel-title">학습 기록</h2>
-      <p class="panel-sub">오늘의 집중 시간과 졸음 기록입니다. (새로고침해도 유지됩니다)</p>
+      <p class="panel-sub">오늘의 집중 시간과 졸음 기록입니다.</p>
 
       <div class="grid-2 stat-grid">
         <div class="card stat">
@@ -544,7 +566,7 @@
       </div>
 
       <div class="card" style="margin-top:24px;">
-        <div class="card-label">졸음 순간 사진 (잠들 때 자동 촬영 · 클릭하면 저장 · 삭제되지 않고 영구 보관)</div>
+        <div class="card-label">졸음 순간 사진</div>
         <div class="snap-gallery" id="snap-gallery"><div class="log-empty">아직 촬영된 사진이 없습니다.</div></div>
       </div>
 
@@ -592,6 +614,7 @@
 
   const LS_KEY = "drowsyHelperV2";    // localStorage 저장 키 (시간·로그)
   const LS_SNAP_KEY = "drowsyHelperSnapsV1";  // 졸음 순간 사진 저장 키
+  const MAX_SNAPSHOTS = 10;           // 사진은 최근 10장까지만 보관(오래된 것부터 삭제)
 
   /* 모델 라벨(한글이든 영어든)을 표준 클래스로 변환 */
   function normClass(name) {
@@ -614,6 +637,7 @@
   let drowsyStartTime = null, lastWarningTime = -Infinity, drowsyReason = "";
   let awakeHoldStart = null;        // 졸음에서 '깨어남'이 유지되기 시작한 시각(복귀 판정용)
   let audioUnlocked = false, audioCtx = null;
+  let soundOn = localStorage.getItem("drowsySoundOn") !== "0";   // 소리 설정(기본 켜짐, 저장됨)
 
   // 기록(학습 기록 탭 + localStorage)
   let studySeconds = 0;
@@ -631,7 +655,7 @@
 
   /* DOM 요소 */
   const $ = (id) => document.getElementById(id);
-  const camCard = $("cam-card"), statusText = $("status-text"), statusProb = $("status-prob");
+  const camCard = $("cam-card"), statusText = $("status-text");
   const chipFace = $("chip-face"), chipEye = $("chip-eye"), chipAi = $("chip-ai");
   const stopwatchEl = $("stopwatch"), swStateEl = $("sw-state"), logEl = $("log");
   const bannerEl = $("alert-banner"), loadingEl = $("loading");
@@ -837,17 +861,13 @@
       setChip(chipEye, "눈 —", "");
     } else {
       const closed = currentEAR < EAR_THRESHOLD;
-      setChip(chipEye, "눈 " + (closed ? "감김" : "열림") + " (" + currentEAR.toFixed(2) + ")",
-              closed ? "warn" : "on");
+      setChip(chipEye, "눈 " + (closed ? "감김" : "열림"), closed ? "warn" : "on");
     }
 
     let t = "AI —", c = "";
     if (tmTopClass === CLASS_DROWSY) { t = "AI 졸림"; c = "warn"; }
     else if (tmTopClass === CLASS_AWAKE) { t = "AI 깨어있음"; c = "on"; }
     setChip(chipAi, t, c);
-
-    // 웹캠 아래 상태 옆 확률 표시
-    statusProb.textContent = modelLoaded ? "AI 신뢰도 " + Math.round(tmTopProb * 100) + "%" : "";
   }
   function setChip(el, text, cls) { el.textContent = text; el.className = "chip " + cls; }
 
@@ -863,6 +883,7 @@
 
   /* 졸음 경고: 사이렌 → 잠시 후 음성 안내 (겹치지 않게 순서대로) */
   function alertUser() {
+    if (!soundOn) return;             // 🔇 소리 꺼짐이면 경고음 전체 생략
     playSiren();
     setTimeout(speakWarning, 1600);   // 사이렌이 끝난 뒤 음성이 또렷이 들리도록
   }
@@ -993,7 +1014,8 @@
       const d = new Date(), p = (n) => String(n).padStart(2, "0");
       const time = p(d.getMonth() + 1) + "/" + p(d.getDate()) + " " +
                    p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
-      snapshots.push({ time, url });   // ★ 사진은 절대 자동 삭제하지 않음 (개수 제한 없음)
+      snapshots.push({ time, url });
+      while (snapshots.length > MAX_SNAPSHOTS) snapshots.shift();   // 최근 10장만 유지
       saveSnapshots();
       renderSnapshots();
     } catch (e) { console.warn("사진 저장 실패:", e); }
@@ -1012,18 +1034,19 @@
     ).join("");
   }
 
-  /* 사진 저장/복원 (메인 데이터와 분리된 키, 용량 초과 시 오래된 것부터 버림) */
+  /* 사진 저장/복원 (메인 데이터와 분리된 키, 최근 10장만 보관) */
   function saveSnapshots() {
-    // ★ 사진은 절대 삭제하지 않으므로, 저장 실패(용량 초과) 시에도 기존 사진을 버리지 않음
     try { localStorage.setItem(LS_SNAP_KEY, JSON.stringify({ snaps: snapshots })); }
-    catch (e) { console.warn("사진 저장 공간이 가득 찼습니다(기존 사진은 그대로 유지).", e); }
+    catch (e) { console.warn("사진 저장 실패:", e); }
   }
   function loadSnapshots() {
     try {
       const raw = localStorage.getItem(LS_SNAP_KEY);
       if (!raw) return;
       const d = JSON.parse(raw);
-      snapshots = Array.isArray(d.snaps) ? d.snaps : [];   // ★ 날짜가 바뀌어도 사진은 계속 보관
+      snapshots = Array.isArray(d.snaps) ? d.snaps : [];
+      // 예전에 10장 넘게 쌓여 있던 경우도 최근 10장만 남김
+      if (snapshots.length > MAX_SNAPSHOTS) snapshots = snapshots.slice(-MAX_SNAPSHOTS);
     } catch (e) {}
   }
 
@@ -1078,6 +1101,20 @@
     recTimeEl.textContent = formatTime(0);
     saveData();
   });
+
+  /* 소리 켜기/끄기 버튼 — 사이렌+음성 전체를 끄고 켬 (설정은 저장됨) */
+  const soundBtn = $("sound-btn");
+  function renderSoundBtn() {
+    soundBtn.textContent = soundOn ? "🔊" : "🔇";
+    soundBtn.classList.toggle("off", !soundOn);
+  }
+  soundBtn.addEventListener("click", () => {
+    soundOn = !soundOn;
+    try { localStorage.setItem("drowsySoundOn", soundOn ? "1" : "0"); } catch (e) {}
+    if (!soundOn && "speechSynthesis" in window) window.speechSynthesis.cancel();  // 말하던 음성도 즉시 중단
+    renderSoundBtn();
+  });
+  renderSoundBtn();
 
   /* =========================================================================
      9) 탭 전환
