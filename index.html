@@ -295,6 +295,8 @@
     transition: background 0.25s ease, color 0.25s ease, transform 0.15s ease;
   }
   .time-reset-btn { margin: 16px auto 0; padding: 9px 18px; font-size: 13px; }
+  .sw-btns { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+  .sw-btns .time-reset-btn { margin: 0; }   /* 나란히 배치할 땐 개별 여백 제거 */
   .reset-btn { margin-top: 24px; padding: 12px 22px; font-size: 14px; }
   .time-reset-btn:hover { background: rgba(52, 199, 89, 0.15); color: #15803D; }
   .reset-btn:hover { background: rgba(255, 69, 58, 0.12); color: #d0342a; }
@@ -483,7 +485,10 @@
             <div class="card-label">공부 시간</div>
             <div class="stopwatch" id="stopwatch">00:00:00</div>
             <div class="sw-state" id="sw-state">⏸ 대기 중</div>
-            <button class="time-reset-btn" id="time-reset-btn">시간 초기화</button>
+            <div class="sw-btns">
+              <button class="time-reset-btn" id="pause-btn">⏸ 정지</button>
+              <button class="time-reset-btn" id="time-reset-btn">시간 초기화</button>
+            </div>
           </div>
           <div class="card log-card">
             <div class="card-label">상태 로그</div>
@@ -722,6 +727,7 @@
   let audioUnlocked = false, audioCtx = null;
   let soundOn = localStorage.getItem("drowsySoundOn") !== "0";   // 소리 설정(기본 켜짐, 저장됨)
   let cameraOn = true;              // 카메라 켜짐 여부(끄면 감지도 함께 중단)
+  let timerPaused = false;          // 스톱워치 수동 정지 여부(정지 버튼)
 
   // 기록(학습 기록 탭 + localStorage)
   let studySeconds = 0;
@@ -943,7 +949,8 @@
     statusText.textContent = cfg.text;
     statusText.style.color = (state === CLASS_DROWSY) ? "var(--warn)"
                             : (state === CLASS_AWAKE)  ? "var(--accent)" : "var(--text)";
-    swStateEl.textContent = cfg.run ? "▶ 공부 시간 측정 중" : "⏸ 일시정지";
+    swStateEl.textContent = timerPaused ? "⏸ 정지됨 (수동)"
+                          : (cfg.run ? "▶ 공부 시간 측정 중" : "⏸ 일시정지");
   }
 
   /* =========================================================================
@@ -1028,7 +1035,7 @@
   let saveTick = 0;
   setInterval(() => {
     const cfg = STATE_CONFIG[displayState];
-    if (cfg && cfg.run) {
+    if (!timerPaused && cfg && cfg.run) {   // 수동 정지 중에는 집중 중이어도 시간 증가 안 함
       studySeconds++;
       stopwatchEl.textContent = formatTime(studySeconds);
       recTimeEl.textContent = formatTime(studySeconds);
@@ -1215,6 +1222,14 @@
     stopwatchEl.textContent = formatTime(0);
     recTimeEl.textContent = formatTime(0);
     saveData();
+  });
+
+  /* 정지/재개 버튼 — 집중 중이어도 스톱워치를 수동으로 멈출 수 있음 */
+  const pauseBtn = $("pause-btn");
+  pauseBtn.addEventListener("click", () => {
+    timerPaused = !timerPaused;
+    pauseBtn.textContent = timerPaused ? "▶ 재개" : "⏸ 정지";
+    applyState(displayState);   // 스톱워치 아래 상태 문구 갱신
   });
 
   /* 소리 켜기/끄기 버튼 — 사이렌+음성 전체를 끄고 켬 (설정은 저장됨) */
