@@ -837,7 +837,11 @@
       faceDetected = true;
       const lm = results.multiFaceLandmarks[0];
       const W = webcam.canvas.width, H = webcam.canvas.height;
-      currentEAR = (eyeEAR(lm, RIGHT_EYE, W, H) + eyeEAR(lm, LEFT_EYE, W, H)) / 2;
+      const rightE = eyeEAR(lm, RIGHT_EYE, W, H);
+      const leftE  = eyeEAR(lm, LEFT_EYE,  W, H);
+      // '더 크게 뜬 눈'을 기준으로 사용 → 한쪽만 감는 윙크는 눈 감김으로 치지 않고,
+      // 두 눈을 '모두' 감아야만 EAR이 기준값 아래로 내려가 졸음 후보가 된다
+      currentEAR = Math.max(rightE, leftE);
     } else {
       faceDetected = false; currentEAR = null;
     }
