@@ -795,21 +795,24 @@
      2) 매 프레임 반복 (탭을 벗어나도 백그라운드에서 계속 동작)
      ========================================================================= */
   async function loop() {
-    if (!cameraOn) {                 // 카메라 꺼짐: 감지 전체 건너뜀 (켜지면 자동 재개)
-      window.requestAnimationFrame(loop);
-      return;
+    try {
+      // 카메라가 켜져 있고 웹캠이 완전히 준비된 경우에만 감지 수행
+      if (cameraOn && webcam && webcam.canvas) {
+        webcam.update();
+        await predictTeachable();
+        if (faceMeshReady) {
+          try { await faceMesh.send({ image: webcam.canvas }); }
+          catch (e) { console.warn("FaceMesh 오류:", e); }
+        } else {
+          faceDetected = true; currentEAR = null;
+          finishFirstFrame();
+        }
+        fuse();
+        updateChips();
+      }
+    } catch (e) {
+      console.warn("감지 루프 오류:", e);   // ★ 오류가 나도 루프는 절대 멈추지 않음
     }
-    webcam.update();
-    await predictTeachable();
-    if (faceMeshReady) {
-      try { await faceMesh.send({ image: webcam.canvas }); }
-      catch (e) { console.warn("FaceMesh 오류:", e); }
-    } else {
-      faceDetected = true; currentEAR = null;
-      finishFirstFrame();
-    }
-    fuse();
-    updateChips();
     window.requestAnimationFrame(loop);
   }
 
@@ -1228,35 +1231,42 @@
   const cameraBtn = $("camera-btn");
   const camStageEl = $("cam-stage");
   cameraBtn.addEventListener("click", async () => {
-    if (!webcam) return;                        // 초기화 전이면 무시
-    cameraOn = !cameraOn;
-    cameraBtn.textContent = cameraOn ? "📷" : "🚫";
-    cameraBtn.classList.toggle("off", !cameraOn);
-    camStageEl.classList.toggle("off", !cameraOn);
-    if (!cameraOn) {
+    if (!webcam || cameraBtn.disabled) return;  // 초기화 전/재시작 중이면 무시
+
+    if (cameraOn) {
+      /* ---- 끄기 ---- */
+      cameraOn = false;                         // 먼저 감지 루프부터 멈춤
+      cameraBtn.textContent = "🚫"; cameraBtn.classList.add("off");
+      camStageEl.classList.add("off");
       try { webcam.stop(); } catch (e) {}       // 카메라 램프도 꺼지도록 스트림 정지
       faceDetected = false; currentEAR = null; tmTopClass = CLASS_NONE;
       drowsyStartTime = null; awakeHoldStart = null;
       commitState(CLASS_NONE);                  // 상태는 '대기 중'으로 (스톱워치 정지)
       updateChips();
     } else {
+      /* ---- 켜기 ---- */
+      cameraBtn.disabled = true;                // 준비되는 동안 연타 방지
       try {
-        // 정지했던 웹캠 객체를 재사용하면 재생이 안 되는 경우가 있어,
-        // 웹캠을 '새로' 만들고 화면의 캔버스를 새것으로 교체한다
+        // 정지했던 웹캠 객체는 재생이 안 되므로 '새로' 만들어 완전히 준비시킨 뒤,
+        // 화면의 캔버스를 교체하고 나서야 감지를 재개한다 (준비 전 접근 방지)
         const oldCanvas = webcam.canvas;
-        webcam = new tmImage.Webcam(640, 480, true);
-        await webcam.setup();
-        await webcam.play();
+        const cam = new tmImage.Webcam(640, 480, true);
+        await cam.setup();
+        await cam.play();
         if (oldCanvas && oldCanvas.parentNode) {
-          oldCanvas.parentNode.replaceChild(webcam.canvas, oldCanvas);
+          oldCanvas.parentNode.replaceChild(cam.canvas, oldCanvas);
         } else {
-          camStageEl.appendChild(webcam.canvas);
+          camStageEl.appendChild(cam.canvas);
         }
+        webcam = cam;                           // ★ 다 준비된 뒤에만 교체
+        cameraOn = true;                        // ★ 이제부터 감지 재개
+        cameraBtn.textContent = "📷"; cameraBtn.classList.remove("off");
+        camStageEl.classList.remove("off");
       } catch (e) {
         console.warn("카메라 재시작 실패:", e);
-        cameraOn = false;
-        cameraBtn.textContent = "🚫"; cameraBtn.classList.add("off");
-        camStageEl.classList.add("off");
+        alert("카메라를 다시 켜지 못했어요. 브라우저의 카메라 권한을 확인해 주세요.");
+      } finally {
+        cameraBtn.disabled = false;
       }
     }
   });
