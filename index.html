@@ -203,7 +203,6 @@
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     object-fit: cover;               /* 비율이 안 맞아도 영상이 찌그러지지 않게(잘라서 채움) */
   }
-  #overlay { z-index: 1; pointer-events: none; }   /* 메시는 영상 위에, 클릭은 통과 */
 
   .cam-status {
     display: flex; align-items: baseline; gap: 10px;
@@ -466,7 +465,6 @@
         <div class="card cam-card" id="cam-card">
           <div class="cam-stage" id="cam-stage">
             <!-- 웹캠 캔버스는 JS에서 여기에 삽입됨 -->
-            <canvas id="overlay" width="640" height="480"></canvas>  <!-- 얼굴 메시 오버레이 -->
             <div class="cam-off-msg">📷 카메라가 꺼져 있습니다</div>
           </div>
           <div class="cam-status">
@@ -672,8 +670,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
   <!-- MediaPipe FaceMesh : 얼굴 468점 랜드마크 (눈 감김 정밀 측정) -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
-  <!-- MediaPipe 그리기 도구 : 얼굴 그물망(메시)을 캔버스에 그려줌 -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1620248257/drawing_utils.js" crossorigin="anonymous"></script>
 
   <script>
   /* =========================================================================
@@ -749,7 +745,6 @@
   const bannerEl = $("alert-banner"), loadingEl = $("loading");
   const recTimeEl = $("rec-time"), recCountEl = $("rec-count"), recTableEl = $("rec-table");
   const snapGalleryEl = $("snap-gallery");
-  const overlayCanvas = $("overlay"), octx = overlayCanvas.getContext("2d");  // 얼굴 메시 오버레이
 
   /* =========================================================================
      1) 초기화 — 저장된 기록 복원 → 모델 + FaceMesh + 웹캠 준비
@@ -843,32 +838,10 @@
       const lm = results.multiFaceLandmarks[0];
       const W = webcam.canvas.width, H = webcam.canvas.height;
       currentEAR = (eyeEAR(lm, RIGHT_EYE, W, H) + eyeEAR(lm, LEFT_EYE, W, H)) / 2;
-      drawFaceMesh(lm);                    // 화면 위에 얼굴 그물망 표시
     } else {
       faceDetected = false; currentEAR = null;
-      octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);  // 얼굴 없으면 메시 지움
     }
     finishFirstFrame();
-  }
-
-  /* 얼굴 그물망(메시) 그리기 — drawing_utils의 drawConnectors 사용
-     · 전체 그물망은 은은한 흰색, 얼굴 윤곽은 조금 진하게
-     · 눈은 상태 색으로 강조: 뜨면 초록, 감으면 노랑 (이 프로젝트의 핵심 부위) */
-  function drawFaceMesh(lm) {
-    octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-    if (typeof drawConnectors !== "function") return;   // CDN 로드 실패 시 감지만 계속
-
-    const closed = (currentEAR !== null && currentEAR < EAR_THRESHOLD);
-    const eyeColor = closed ? "#FFD60A" : "#34C759";
-
-    drawConnectors(octx, lm, FACEMESH_TESSELATION, { color: "rgba(255,255,255,0.35)", lineWidth: 0.5 });
-    drawConnectors(octx, lm, FACEMESH_FACE_OVAL,   { color: "rgba(255,255,255,0.75)", lineWidth: 1.2 });
-    drawConnectors(octx, lm, FACEMESH_RIGHT_EYE, { color: eyeColor, lineWidth: 1.8 });
-    drawConnectors(octx, lm, FACEMESH_LEFT_EYE,  { color: eyeColor, lineWidth: 1.8 });
-    if (typeof FACEMESH_RIGHT_IRIS !== "undefined") {   // 홍채(refineLandmarks 켜짐일 때만 존재)
-      drawConnectors(octx, lm, FACEMESH_RIGHT_IRIS, { color: eyeColor, lineWidth: 1.2 });
-      drawConnectors(octx, lm, FACEMESH_LEFT_IRIS,  { color: eyeColor, lineWidth: 1.2 });
-    }
   }
 
   function finishFirstFrame() {
@@ -1268,7 +1241,6 @@
       try { webcam.stop(); } catch (e) {}       // 카메라 램프도 꺼지도록 스트림 정지
       faceDetected = false; currentEAR = null; tmTopClass = CLASS_NONE;
       drowsyStartTime = null; awakeHoldStart = null;
-      octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);  // 남은 메시 지움
       commitState(CLASS_NONE);                  // 상태는 '대기 중'으로 (스톱워치 정지)
       updateChips();
     } else {
