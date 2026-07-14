@@ -1240,8 +1240,19 @@
       commitState(CLASS_NONE);                  // 상태는 '대기 중'으로 (스톱워치 정지)
       updateChips();
     } else {
-      try { await webcam.setup(); await webcam.play(); }   // 스트림 다시 시작
-      catch (e) {
+      try {
+        // 정지했던 웹캠 객체를 재사용하면 재생이 안 되는 경우가 있어,
+        // 웹캠을 '새로' 만들고 화면의 캔버스를 새것으로 교체한다
+        const oldCanvas = webcam.canvas;
+        webcam = new tmImage.Webcam(640, 480, true);
+        await webcam.setup();
+        await webcam.play();
+        if (oldCanvas && oldCanvas.parentNode) {
+          oldCanvas.parentNode.replaceChild(webcam.canvas, oldCanvas);
+        } else {
+          camStageEl.appendChild(webcam.canvas);
+        }
+      } catch (e) {
         console.warn("카메라 재시작 실패:", e);
         cameraOn = false;
         cameraBtn.textContent = "🚫"; cameraBtn.classList.add("off");
