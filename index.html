@@ -379,9 +379,9 @@
     .stopwatch { font-size: 46px; }
   }
 
-  /* ============ 소리 켜기/끄기 플로팅 버튼 ============ */
-  .sound-btn {
-    position: fixed; right: 18px; bottom: 18px; z-index: 100;
+  /* ============ 소리/카메라 플로팅 버튼 (오른쪽 아래 세로 스택) ============ */
+  .sound-btn, .camera-btn {
+    position: fixed; right: 18px; z-index: 100;
     width: 48px; height: 48px; border-radius: 999px; border: none; cursor: pointer;
     font-size: 20px; display: grid; place-items: center;
     background: rgba(255, 255, 255, 0.72);
@@ -390,9 +390,20 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.90), 0 8px 24px rgba(0, 0, 0, 0.12);
     transition: transform 0.15s ease, background 0.25s ease;
   }
-  .sound-btn:hover { background: rgba(255, 255, 255, 0.90); }
-  .sound-btn:active { transform: scale(0.94); }
-  .sound-btn.off { background: rgba(0, 0, 0, 0.08); }   /* 꺼짐 상태는 회색 */
+  .sound-btn { bottom: 18px; }
+  .camera-btn { bottom: 76px; }                          /* 음소거 버튼 바로 위 */
+  .sound-btn:hover, .camera-btn:hover { background: rgba(255, 255, 255, 0.90); }
+  .sound-btn:active, .camera-btn:active { transform: scale(0.94); }
+  .sound-btn.off, .camera-btn.off { background: rgba(0, 0, 0, 0.08); }   /* 꺼짐 상태는 회색 */
+
+  /* 카메라 꺼짐 안내 (웹캠 화면 위 덮개) */
+  .cam-off-msg {
+    position: absolute; inset: 0; z-index: 2;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.80);
+    color: rgba(255, 255, 255, 0.85); font-size: 15px;
+  }
+  .cam-stage.off .cam-off-msg { display: flex; }
 
   /* ============ 실시간 감지 탭: 한 화면에 꽉 차게 (스크롤 없음) ============ */
   @media (min-width: 769px) {
@@ -440,7 +451,8 @@
   <!-- ===================== 졸음 경고 배너 ===================== -->
   <div id="alert-banner">😴 졸음이 감지되었습니다 — 일어나서 스트레칭을 해보세요</div>
 
-  <!-- 소리(사이렌+음성) 켜기/끄기 플로팅 버튼 -->
+  <!-- 카메라 켜기/끄기 + 소리(사이렌+음성) 켜기/끄기 플로팅 버튼 -->
+  <button class="camera-btn" id="camera-btn" aria-label="카메라 켜기/끄기">📷</button>
   <button class="sound-btn" id="sound-btn" aria-label="소리 켜기/끄기">🔊</button>
 
   <main>
@@ -453,6 +465,7 @@
         <div class="card cam-card" id="cam-card">
           <div class="cam-stage" id="cam-stage">
             <!-- 웹캠 캔버스는 JS에서 여기에 삽입됨 -->
+            <div class="cam-off-msg">📷 카메라가 꺼져 있습니다</div>
           </div>
           <div class="cam-status">
             <span id="status-text">대기 중</span>
@@ -708,6 +721,7 @@
   let awakeHoldStart = null;        // 졸음에서 '깨어남'이 유지되기 시작한 시각(복귀 판정용)
   let audioUnlocked = false, audioCtx = null;
   let soundOn = localStorage.getItem("drowsySoundOn") !== "0";   // 소리 설정(기본 켜짐, 저장됨)
+  let cameraOn = true;              // 카메라 켜짐 여부(끄면 감지도 함께 중단)
 
   // 기록(학습 기록 탭 + localStorage)
   let studySeconds = 0;
@@ -781,6 +795,10 @@
      2) 매 프레임 반복 (탭을 벗어나도 백그라운드에서 계속 동작)
      ========================================================================= */
   async function loop() {
+    if (!cameraOn) {                 // 카메라 꺼짐: 감지 전체 건너뜀 (켜지면 자동 재개)
+      window.requestAnimationFrame(loop);
+      return;
+    }
     webcam.update();
     await predictTeachable();
     if (faceMeshReady) {
@@ -1205,6 +1223,32 @@
     renderSoundBtn();
   });
   renderSoundBtn();
+
+  /* 카메라 켜기/끄기 버튼 — 끄면 웹캠 스트림을 실제로 정지(감지·촬영도 중단) */
+  const cameraBtn = $("camera-btn");
+  const camStageEl = $("cam-stage");
+  cameraBtn.addEventListener("click", async () => {
+    if (!webcam) return;                        // 초기화 전이면 무시
+    cameraOn = !cameraOn;
+    cameraBtn.textContent = cameraOn ? "📷" : "🚫";
+    cameraBtn.classList.toggle("off", !cameraOn);
+    camStageEl.classList.toggle("off", !cameraOn);
+    if (!cameraOn) {
+      try { webcam.stop(); } catch (e) {}       // 카메라 램프도 꺼지도록 스트림 정지
+      faceDetected = false; currentEAR = null; tmTopClass = CLASS_NONE;
+      drowsyStartTime = null; awakeHoldStart = null;
+      commitState(CLASS_NONE);                  // 상태는 '대기 중'으로 (스톱워치 정지)
+      updateChips();
+    } else {
+      try { await webcam.setup(); await webcam.play(); }   // 스트림 다시 시작
+      catch (e) {
+        console.warn("카메라 재시작 실패:", e);
+        cameraOn = false;
+        cameraBtn.textContent = "🚫"; cameraBtn.classList.add("off");
+        camStageEl.classList.add("off");
+      }
+    }
+  });
 
   /* =========================================================================
      9) 탭 전환
